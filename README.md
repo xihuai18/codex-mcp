@@ -293,6 +293,12 @@ npm run typecheck
 npm test
 ```
 
+## Project Policies
+
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [Code of Conduct](CODE_OF_CONDUCT.md)
+
 ## License
 
 [MIT](LICENSE)

@@ -6,6 +6,7 @@ dist/
 # Logs
 *.log
 npm-debug.log*
+*.stackdump
 
 # Coverage
 coverage/
@@ -25,6 +26,8 @@ Thumbs.db
 .env
 .env.*
 !.env.example
+.npmrc
+.codex/
 
 # Claude
 .claude/
@@ -33,5 +36,3 @@ Thumbs.db
 codex-app-server.schema.json
 server-notifications.json
 server-notifications.min.json
-
-codex-schema/

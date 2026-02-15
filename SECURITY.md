@@ -11,7 +11,7 @@
 If you discover a security vulnerability, please report it responsibly:
 
 1. **Do not** open a public issue
-2. Email: leoxhwang@sjtu.edu.cn
+2. Use GitHub's private vulnerability reporting (Security Advisories → "Report a vulnerability")
 3. Include a description of the vulnerability and steps to reproduce
 
 You should receive a response within 48 hours.

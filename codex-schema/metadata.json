@@ -1,0 +1,12 @@
+{
+  "generatedAt": "2026-02-15",
+  "generator": {
+    "name": "codex-cli",
+    "version": "0.101.0"
+  },
+  "command": "codex app-server generate-json-schema --experimental --out codex-schema",
+  "notes": [
+    "This schema bundle is vendored to make protocol changes reviewable and to keep implementation/tests in sync."
+  ]
+}
+
