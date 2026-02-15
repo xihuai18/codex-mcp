@@ -1,0 +1,37 @@
+node_modules/
+dist/
+*.tsbuildinfo
+*.tgz
+
+# Logs
+*.log
+npm-debug.log*
+
+# Coverage
+coverage/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# Claude
+.claude/
+
+# Generated reference schemas
+codex-app-server.schema.json
+server-notifications.json
+server-notifications.min.json
+
+codex-schema/

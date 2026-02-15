@@ -1,0 +1,48 @@
+import { describe, it, expect } from "vitest";
+import { registerResources, RESOURCE_URIS } from "../src/resources/register-resources.js";
+
+describe("resources", () => {
+  it("registers expected URIs and includes advanced.config guidance", () => {
+    const registered: Array<{
+      name: string;
+      uri: string;
+      title?: string;
+      mimeType?: string;
+      read: () => unknown;
+    }> = [];
+
+    const fakeServer = {
+      registerResource: (
+        name: string,
+        uriOrTemplate: string,
+        config: { title?: string; mimeType?: string },
+        readCallback: () => unknown
+      ) => {
+        registered.push({
+          name,
+          uri: uriOrTemplate,
+          title: config.title,
+          mimeType: config.mimeType,
+          read: readCallback,
+        });
+        return {};
+      },
+    };
+
+    registerResources(fakeServer as never, { version: "0.0.0-test" });
+
+    const uris = registered.map((r) => r.uri);
+    expect(uris).toContain(RESOURCE_URIS.serverInfo);
+    expect(uris).toContain(RESOURCE_URIS.config);
+    expect(uris).toContain(RESOURCE_URIS.gotchas);
+
+    const config = registered.find((r) => r.uri === RESOURCE_URIS.config);
+    expect(config?.mimeType).toBe("text/markdown");
+
+    const readResult = config?.read() as { contents?: Array<{ text?: string }> };
+    const text = readResult.contents?.[0]?.text ?? "";
+    expect(text).toContain("advanced.config");
+    expect(text).toContain("-c key=value");
+  });
+});
+

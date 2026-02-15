@@ -1,0 +1,33 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
+
+## [Unreleased]
+
+### Breaking Changes
+
+- `approvalPolicy`, `sandbox`, and `effort` are now **required** parameters in the `codex` tool — callers must explicitly set based on their own permission level and task complexity
+- `effort` parameter promoted from `advanced.effort` to top-level parameter in the `codex` tool
+
+### Changed
+
+- All MCP-visible text (tool descriptions, parameter descriptions, resource descriptions) streamlined for conciseness
+- `effort` description now suggests adjusting based on task complexity
+
+## [0.1.0] - 2026-02-15
+
+### Added
+
+- Initial release
+- 4 MCP tools: `codex`, `codex_reply`, `codex_session`, `codex_check`
+- Async non-blocking session management
+- Three-layer permission model (approval policy, sandbox, async approval)
+- Cursor-based event polling with pin-protected buffer
+- Session lifecycle: create, reply, cancel, interrupt, fork
+- Command execution and file change approval flow
+- User input request handling
+- Automatic session cleanup (idle/running/terminal timeouts)
+- Zero-config startup via `~/.codex/config.toml` inheritance
