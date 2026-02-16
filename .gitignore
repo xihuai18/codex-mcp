@@ -32,9 +32,8 @@ Thumbs.db
 # Claude
 .claude/
 
-# Generated reference schemas
+# Generated reference schemas (single-file outputs)
 codex-app-server.schema.json
 server-notifications.json
 server-notifications.min.json
 server-notifications.*.json
-codex-schema/
