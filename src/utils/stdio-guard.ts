@@ -28,6 +28,7 @@ export interface StdioPreflightResult {
   invalidMode?: string;
   riskLevel: "low" | "elevated";
   riskReasons: string[];
+  blockingReasons: string[];
   notes: string[];
   suggestions: string[];
   shouldBlock: boolean;
@@ -75,11 +76,14 @@ export function runStdioPreflight(opts: StdioPreflightOptions = {}): StdioPrefli
       invalidMode: modeResolution.invalidRaw,
       riskLevel: "low",
       riskReasons: [],
+      blockingReasons: [],
       notes,
       suggestions: [],
       shouldBlock: false,
     };
   }
+
+  const blockingReasons: string[] = [];
 
   if (platform === "win32" && looksLikePowerShell(env)) {
     riskReasons.push(
@@ -88,13 +92,15 @@ export function runStdioPreflight(opts: StdioPreflightOptions = {}): StdioPrefli
   }
 
   if (stdinIsTTY || stdoutIsTTY) {
-    notes.push(
-      "STDIO appears attached to a terminal (TTY). MCP clients should launch codex-mcp with piped stdio."
-    );
+    const ttyRisk =
+      "STDIO appears attached to a terminal (TTY). MCP clients should launch codex-mcp with piped stdio.";
+    notes.push(ttyRisk);
+    riskReasons.push(ttyRisk);
+    blockingReasons.push(ttyRisk);
   }
 
   const riskLevel: StdioPreflightResult["riskLevel"] = riskReasons.length > 0 ? "elevated" : "low";
-  const shouldBlock = modeResolution.mode === "strict" && riskReasons.length > 0;
+  const shouldBlock = modeResolution.mode === "strict" && blockingReasons.length > 0;
 
   return {
     mode: modeResolution.mode,
@@ -102,6 +108,7 @@ export function runStdioPreflight(opts: StdioPreflightOptions = {}): StdioPrefli
     invalidMode: modeResolution.invalidRaw,
     riskLevel,
     riskReasons,
+    blockingReasons,
     notes,
     suggestions: riskReasons.length > 0 ? buildFixSuggestions(platform) : [],
     shouldBlock,

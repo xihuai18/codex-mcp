@@ -14,7 +14,7 @@ describe("stdio guard", () => {
     expect(mode.invalidRaw).toBe("banana");
   });
 
-  it("enables strict blocking on elevated PowerShell risk", () => {
+  it("keeps PowerShell risk as warning-only in strict mode", () => {
     const out = runStdioPreflight({
       platform: "win32",
       env: {
@@ -28,7 +28,8 @@ describe("stdio guard", () => {
 
     expect(out.mode).toBe("strict");
     expect(out.riskLevel).toBe("elevated");
-    expect(out.shouldBlock).toBe(true);
+    expect(out.shouldBlock).toBe(false);
+    expect(out.blockingReasons).toEqual([]);
     expect(out.suggestions.some((s) => s.includes("NoProfile"))).toBe(true);
   });
 
@@ -62,6 +63,23 @@ describe("stdio guard", () => {
     expect(out.mode).toBe("off");
     expect(out.riskLevel).toBe("low");
     expect(out.riskReasons).toEqual([]);
+    expect(out.blockingReasons).toEqual([]);
     expect(out.shouldBlock).toBe(false);
+  });
+
+  it("strict mode blocks when stdio is attached to tty", () => {
+    const out = runStdioPreflight({
+      platform: "linux",
+      env: {
+        CODEX_MCP_STDIO_MODE: "strict",
+      },
+      stdinIsTTY: true,
+      stdoutIsTTY: false,
+    });
+
+    expect(out.mode).toBe("strict");
+    expect(out.riskLevel).toBe("elevated");
+    expect(out.blockingReasons.length).toBeGreaterThan(0);
+    expect(out.shouldBlock).toBe(true);
   });
 });

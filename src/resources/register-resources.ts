@@ -121,7 +121,7 @@ export function registerResources(
           "- If `cursorResetTo` is present, cursor was stale; restart from `cursorResetTo`.",
           "- Approvals auto-decline after `approvalTimeoutMs`. Respond to `actions[]` promptly.",
           "- `advanced.images` must exist on server host; sent as `localImage` inputs.",
-          "- `CODEX_MCP_STDIO_MODE` controls startup guard behavior: `auto` (default), `strict`, `off`.",
+          "- `CODEX_MCP_STDIO_MODE` controls startup guard behavior: `auto` (default), `strict` (block on high-confidence contamination risks), `off`.",
           "- On Windows PowerShell wrappers, prefer `pwsh -NoProfile` to avoid profile banner output.",
           "- Profile/banner stdout emitted before MCP handshake cannot be filtered by codex-mcp (stdout is protocol channel).",
           '- If Windows command turns still fail with profile noise, this is usually inside `codex app-server` shell execution; clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"`.',

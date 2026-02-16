@@ -24,7 +24,7 @@ async function main(): Promise<void> {
   }
   if (preflight.shouldBlock) {
     throw new Error(
-      "STDIO preflight failed in strict mode due to elevated stdout contamination risk"
+      "STDIO preflight failed in strict mode due to blocking stdout contamination risk"
     );
   }
 

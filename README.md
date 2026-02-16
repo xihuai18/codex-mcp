@@ -76,7 +76,7 @@ args = ["-y", "@leo000001/codex-mcp"]
 `codex-mcp` includes a startup preflight guard for stdout contamination risk.
 
 - `CODEX_MCP_STDIO_MODE=auto` (default): run with warnings when risk is elevated
-- `CODEX_MCP_STDIO_MODE=strict`: fail fast on elevated risk
+- `CODEX_MCP_STDIO_MODE=strict`: fail fast on blocking risks (e.g. TTY stdio), keep heuristic risks as warnings
 - `CODEX_MCP_STDIO_MODE=off`: disable the preflight guard
 
 Examples:
@@ -276,7 +276,7 @@ Common codes include `INVALID_ARGUMENT`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, `S
 - `codex-mcp` uses the MCP stdio transport (`src/index.ts`), so stdout is reserved for newline-delimited JSON and all diagnostics go to stderr. Anything else on stdout—including shell/profile banners (e.g., PowerShell's oh-my-posh warning) or CLI wrappers that print prompts—will break the MCP handshake for Claude/Cursor. Run `pwsh -NoProfile`, disable profile banners, or wrap the command so stdout stays quiet before piping it into the client.
 - Windows command execution inside `codex app-server` may still inherit PowerShell profile side effects in some environments. This cannot be filtered by codex-mcp once emitted on stdout; if command turns are noisy or fail with profile errors, clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"` to reduce approval churn.
 - If Windows command output shows mojibake, enforce UTF-8 in the shell (`chcp 65001` and `$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()`).
-- Startup guard behavior is controlled by `CODEX_MCP_STDIO_MODE` (`auto`/`strict`/`off`). Use `strict` in CI or hardened environments to fail fast on elevated contamination risk.
+- Startup guard behavior is controlled by `CODEX_MCP_STDIO_MODE` (`auto`/`strict`/`off`). Use `strict` in CI or hardened environments to fail fast on blocking contamination risks (while still surfacing heuristic risk warnings).
 - Retryable transport/API interruptions are emitted as `progress` events with `data.method="codex-mcp/reconnect"` and `willRetry=true`, so clients can surface reconnect state without treating it as terminal failure.
 - Approval/user-input flows rely on the `actions[]` array returned by `codex_check(action="poll")`. Claude and Cursor render approval buttons from this payload, so they need to poll at `pollInterval`, honour `cursorResetTo`, and reply within `approvalTimeoutMs` to avoid automatic declines.
 
