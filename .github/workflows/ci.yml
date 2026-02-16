@@ -30,6 +30,11 @@ jobs:
             node-version: 22
     runs-on: ${{ matrix.os }}
     steps:
+      - name: Normalize git EOL settings on Windows
+        if: runner.os == 'Windows'
+        run: |
+          git config --global core.autocrlf false
+          git config --global core.eol lf
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:

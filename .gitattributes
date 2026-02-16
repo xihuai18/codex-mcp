@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+# Source code and config files should always use LF to keep Prettier checks
+# consistent across Linux/macOS/Windows runners.
+*.ts text eol=lf
+*.js text eol=lf
+*.mjs text eol=lf
+*.json text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
