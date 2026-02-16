@@ -116,6 +116,85 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(manager.pollEvents(sessionId).actions).toBeUndefined();
   });
 
+  it("uses last poll cursor for respond_approval when cursor is omitted", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_output_1",
+      delta: "hello",
+    });
+    client.emitServerRequest(2, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_1",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_approval",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+      },
+      manager
+    );
+
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    const result = poll2 as { events: Array<{ id: number; type: string }>; nextCursor: number };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].type).toBe("approval_result");
+    expect(result.events[0].id).toBeGreaterThanOrEqual(poll1.nextCursor);
+    expect(result.nextCursor).toBe(result.events[0].id + 1);
+  });
+
+  it("respects explicit cursor in respond_approval", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_output_2",
+      delta: "hello",
+    });
+    client.emitServerRequest(3, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_2",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_approval",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+        cursor: 0,
+      },
+      manager
+    );
+
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    const result = poll2 as {
+      events: Array<{ id: number; type: string }>;
+    };
+    expect(result.events.length).toBeGreaterThanOrEqual(3);
+    expect(result.events[0].id).toBe(0);
+    expect(result.events.some((event) => event.type === "approval_request")).toBe(true);
+    expect(result.events.some((event) => event.type === "approval_result")).toBe(true);
+  });
+
   it("responds to user input request and clears pending request", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(12, Methods.USER_INPUT_REQUEST, {
@@ -145,6 +224,42 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
     expect(client.respondToServer).toHaveBeenCalledWith(12, { answers });
     expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
+  });
+
+  it("uses last poll cursor for respond_user_input when cursor is omitted", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_output_ui",
+      delta: "hello",
+    });
+    client.emitServerRequest(13, Methods.USER_INPUT_REQUEST, {
+      itemId: "item_ui_2",
+      threadId,
+      turnId: "turn_1",
+      questions: [{ questionId: "q1", question: "Pick one" }],
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_user_input",
+        sessionId,
+        requestId: requestId!,
+        answers: { q1: { answers: ["A"] } },
+      },
+      manager
+    );
+
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    const result = poll2 as { events: Array<{ id: number; type: string }> };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].type).toBe("approval_result");
+    expect(result.events[0].id).toBeGreaterThanOrEqual(poll1.nextCursor);
   });
 
   it("normalizes null and non-string approval reason to undefined", async () => {
@@ -324,6 +439,64 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(types).toContain("progress");
   });
 
+  it("coalesces command output deltas for the same item into a single progress event", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    client.emitNotification(Methods.COMMAND_OUTPUT_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "cmd_item_1",
+      delta: "a",
+    });
+    client.emitNotification(Methods.COMMAND_OUTPUT_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "cmd_item_1",
+      delta: "b",
+    });
+    client.emitNotification(Methods.COMMAND_OUTPUT_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "cmd_item_1",
+      delta: "c",
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 50);
+    const deltas = poll.events.filter(
+      (event) =>
+        event.type === "progress" &&
+        (event.data as { method?: string }).method === Methods.COMMAND_OUTPUT_DELTA
+    );
+    expect(deltas).toHaveLength(1);
+    expect((deltas[0].data as { delta?: string }).delta).toBe("abc");
+  });
+
+  it("coalesces reasoning summary deltas for the same item", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    client.emitNotification(Methods.REASONING_SUMMARY_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "summary_item_1",
+      delta: "hello ",
+    });
+    client.emitNotification(Methods.REASONING_SUMMARY_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "summary_item_1",
+      delta: "world",
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 50);
+    const summaries = poll.events.filter(
+      (event) =>
+        event.type === "progress" &&
+        (event.data as { method?: string }).method === Methods.REASONING_SUMMARY_DELTA
+    );
+    expect(summaries).toHaveLength(1);
+    expect((summaries[0].data as { delta?: string }).delta).toBe("hello world");
+  });
+
   it("clears pending requests when app-server exits", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(9, Methods.COMMAND_APPROVAL, {
@@ -398,6 +571,28 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(client.respondToServer).toHaveBeenCalledWith(77, { decision: "cancel" });
     expect(poll.status).toBe("cancelled");
     expect(poll.actions).toBeUndefined();
+  });
+
+  it("ignores late turn/completed notifications after cancellation", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    await manager.cancelSession(sessionId, "Cancelled by test");
+
+    client.emitNotification(Methods.TURN_COMPLETED, {
+      threadId,
+      turnId: "turn_late",
+      turn: { status: "completed", output: "should be ignored" },
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 200);
+    expect(poll.status).toBe("cancelled");
+    expect(poll.result?.status).toBe("cancelled");
+    expect(
+      poll.events.some(
+        (event) =>
+          event.type === "result" &&
+          (event.data as { method?: string }).method === Methods.TURN_COMPLETED
+      )
+    ).toBe(false);
   });
 
   it("unrefs approval timeout timers so they do not block process exit", async () => {

@@ -80,6 +80,7 @@ If you can run scripts in this repository, these quick checks are useful:
 
 ```bash
 npm run check:stdio
+npm run check:stdio:strict
 npm run smoke:mcp
 ```
 
@@ -517,6 +518,7 @@ Fix:
 
 1. Ensure server prints logs to stderr only.
 2. On Windows, avoid profile output (`pwsh -NoProfile` if needed).
+3. Set `CODEX_MCP_STDIO_MODE=strict` during verification to fail fast on elevated contamination risk.
 
 ## Symptom: Session stuck in `waiting_approval`
 

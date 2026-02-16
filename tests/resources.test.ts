@@ -54,5 +54,6 @@ describe("resources", () => {
     expect(payload.version).toBe("0.0.0-test");
     expect(typeof payload.platform).toBe("string");
     expect(typeof payload.node).toBe("string");
+    expect(typeof payload.stdioMode).toBe("string");
   });
 });

@@ -36,6 +36,12 @@ npm install -g @leo000001/codex-mcp
 codex-mcp
 ```
 
+### Windows shell wrapper (if needed)
+
+```powershell
+pwsh -NoProfile -Command "npx -y @leo000001/codex-mcp"
+```
+
 ### MCP Client Configuration
 
 Add to your MCP client config (e.g. Claude Desktop, Cursor, etc.):
@@ -63,6 +69,24 @@ Or add to `~/.codex/config.toml`:
 [mcp_servers.codex-mcp]
 command = "npx"
 args = ["-y", "@leo000001/codex-mcp"]
+```
+
+## STDIO Guard Modes
+
+`codex-mcp` includes a startup preflight guard for stdout contamination risk.
+
+- `CODEX_MCP_STDIO_MODE=auto` (default): run with warnings when risk is elevated
+- `CODEX_MCP_STDIO_MODE=strict`: fail fast on elevated risk
+- `CODEX_MCP_STDIO_MODE=off`: disable the preflight guard
+
+Examples:
+
+```bash
+CODEX_MCP_STDIO_MODE=strict npx -y @leo000001/codex-mcp
+```
+
+```powershell
+$env:CODEX_MCP_STDIO_MODE = "strict"; npx -y @leo000001/codex-mcp
 ```
 
 ## Tools
@@ -178,7 +202,7 @@ Query a running session for events, respond to approval requests, or answer user
 | --------------------- | -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `action`              | string   | Yes                               | `"poll"`, `"respond_approval"`, or `"respond_user_input"`                                                                                                                                        |
 | `sessionId`           | string   | Yes                               | Target session ID                                                                                                                                                                                |
-| `cursor`              | number   | No                                | Event cursor for incremental polling. Default: `0`                                                                                                                                               |
+| `cursor`              | number   | No                                | Event cursor for incremental polling. If omitted, codex-mcp continues from the session's last consumed cursor.                                                                                |
 | `maxEvents`           | number   | No                                | Max events per poll. Default: `200`                                                                                                                                                              |
 | `requestId`           | string   | For respond_approval/user_input   | Request ID from `actions[]`                                                                                                                                                                      |
 | `decision`            | string   | For respond_approval              | For command approvals: `"accept"`, `"acceptForSession"`, `"acceptWithExecpolicyAmendment"`, `"decline"`, `"cancel"`; for file changes: `"accept"`, `"acceptForSession"`, `"decline"`, `"cancel"` |
@@ -212,6 +236,7 @@ Query a running session for events, respond to approval requests, or answer user
 - `nextCursor`: pass this back on the next poll
 - `cursorResetTo`: when present, older events were evicted; restart from this cursor to avoid gaps
 - `maxEvents`: max events returned per call
+- If `cursor` is omitted, codex-mcp continues from that session's last consumed cursor.
 
 Event types include `output`, `progress`, `approval_request`, `approval_result`, `result`, `error`.
 Approvals/results/errors are pinned to reduce eviction risk.
@@ -249,6 +274,8 @@ Common codes include `INVALID_ARGUMENT`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, `R
 - Tool responses follow `@modelcontextprotocol/sdk`'s `CallToolResult` contract: `content` (JSON text for wide compatibility), optional `structuredContent` (the canonical object), and `isError`. Claude Desktop and other clients tend to surface the `content` text directly, which shows the raw JSON blob, so they should fall back to `structuredContent` when they want typed data (Cursor already does this automatically whenever structured output is available).
 - When an operation fails we set `isError: true` and return `Error [CODE]: message` in the `content` array instead of raising an MCP transport error. This keeps the STDIO channel healthy so Claude, Cursor, and other MCP clients stay connected even when a tool reports a problem.
 - `codex-mcp` uses the MCP stdio transport (`src/index.ts`), so stdout is reserved for newline-delimited JSON and all diagnostics go to stderr. Anything else on stdout—including shell/profile banners (e.g., PowerShell's oh-my-posh warning) or CLI wrappers that print prompts—will break the MCP handshake for Claude/Cursor. Run `pwsh -NoProfile`, disable profile banners, or wrap the command so stdout stays quiet before piping it into the client.
+- Windows command execution inside `codex app-server` may still inherit PowerShell profile side effects in some environments; if command turns are noisy or fail with profile errors, clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"` to reduce approval churn.
+- Startup guard behavior is controlled by `CODEX_MCP_STDIO_MODE` (`auto`/`strict`/`off`). Use `strict` in CI or hardened environments to fail fast on elevated contamination risk.
 - Approval/user-input flows rely on the `actions[]` array returned by `codex_check(action="poll")`. Claude and Cursor render approval buttons from this payload, so they need to poll at `pollInterval`, honour `cursorResetTo`, and reply within `approvalTimeoutMs` to avoid automatic declines.
 
 ## Typical Workflow
@@ -292,6 +319,8 @@ npm install
 npm run build
 npm run typecheck
 npm test
+npm run check:stdio
+npm run check:stdio:strict
 ```
 
 End-to-end local test plan (after installing/configuring in an MCP client):

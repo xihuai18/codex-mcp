@@ -104,6 +104,8 @@ export interface SessionInfo {
   sessionId: string;
   threadId?: string;
   activeTurnId?: string;
+  /** Most recent poll cursor consumed by this session. */
+  lastEventCursor: number;
   status: SessionStatus;
   createdAt: string;
   lastActiveAt: string;

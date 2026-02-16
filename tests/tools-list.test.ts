@@ -36,6 +36,14 @@ describe("tools/list metadata", () => {
       const codexReplyProps = codexReply.inputSchema?.properties ?? {};
       expect(codexReplyProps).toHaveProperty("sandbox");
       expect(codexReplyProps).not.toHaveProperty("sandboxPolicy");
+
+      const codexCheck = byName.get("codex_check") as {
+        inputSchema?: { properties?: Record<string, unknown> };
+      };
+      const codexCheckProps = codexCheck.inputSchema?.properties ?? {};
+      const cursorSchema = codexCheckProps.cursor as Record<string, unknown> | undefined;
+      expect(cursorSchema).toBeTruthy();
+      expect(cursorSchema).not.toHaveProperty("default");
     } finally {
       await server.close();
     }

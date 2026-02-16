@@ -304,7 +304,12 @@ respond_user_input: Answer input request. Pass requestId + answers.`,
       inputSchema: {
         action: z.enum(CHECK_ACTIONS),
         sessionId: z.string().describe("Target session ID"),
-        cursor: z.number().int().nonnegative().default(0).optional().describe("Event offset"),
+        cursor: z
+          .number()
+          .int()
+          .nonnegative()
+          .optional()
+          .describe("Event offset; omit to continue from session's last consumed cursor"),
         maxEvents: z
           .number()
           .int()

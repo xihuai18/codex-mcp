@@ -6,8 +6,28 @@
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./server.js";
+import { runStdioPreflight } from "./utils/stdio-guard.js";
 
 async function main(): Promise<void> {
+  const preflight = runStdioPreflight();
+  for (const note of preflight.notes) {
+    console.error(`[stdio] ${note}`);
+  }
+  if (preflight.riskLevel === "elevated") {
+    console.error(`[stdio] Elevated stdout contamination risk detected (mode=${preflight.mode}).`);
+    for (const reason of preflight.riskReasons) {
+      console.error(`[stdio] Reason: ${reason}`);
+    }
+    for (const suggestion of preflight.suggestions) {
+      console.error(`[stdio] Suggestion: ${suggestion}`);
+    }
+  }
+  if (preflight.shouldBlock) {
+    throw new Error(
+      "STDIO preflight failed in strict mode due to elevated stdout contamination risk"
+    );
+  }
+
   const serverCwd = process.cwd();
   const server = createServer(serverCwd);
   const transport = new StdioServerTransport();

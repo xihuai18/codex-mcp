@@ -9,7 +9,7 @@ function usage(exitCode = 0) {
   console.error(
     [
       "Usage:",
-      "  node scripts/check-stdio.mjs [--npx] [--cwd <path>] [--timeout-ms <n>] [-- <command> <...args>]",
+      "  node scripts/check-stdio.mjs [--npx] [--mode <auto|strict|off>] [--cwd <path>] [--timeout-ms <n>] [--report-json <path>] [-- <command> <...args>]",
       "",
       "Checks that the MCP server does NOT write anything to stdout before a client connects.",
       "Any non-empty stdout output is treated as a failure (stdio transport requires stdout to be JSON-RPC only).",
@@ -17,6 +17,7 @@ function usage(exitCode = 0) {
       "Defaults:",
       "  (no args) -> spawns: node dist/index.js",
       "  --npx     -> spawns: npx -y @leo000001/codex-mcp",
+      "  --mode    -> sets CODEX_MCP_STDIO_MODE for child process (default: auto)",
       "",
     ].join("\n")
   );
@@ -28,6 +29,8 @@ function parseArgs(argv) {
     useNpx: false,
     cwd: process.cwd(),
     timeoutMs: 2000,
+    stdioMode: "auto",
+    reportJson: null,
     overrideCommand: null,
     overrideArgs: [],
   };
@@ -59,6 +62,22 @@ function parseArgs(argv) {
       i++;
       continue;
     }
+    if (a === "--mode") {
+      const v = main[i + 1];
+      if (!v) usage(2);
+      const normalized = v.trim().toLowerCase();
+      if (!["auto", "strict", "off"].includes(normalized)) usage(2);
+      out.stdioMode = normalized;
+      i++;
+      continue;
+    }
+    if (a === "--report-json") {
+      const v = main[i + 1];
+      if (!v) usage(2);
+      out.reportJson = v;
+      i++;
+      continue;
+    }
     usage(2);
   }
 
@@ -74,14 +93,24 @@ function wait(ms) {
   return new Promise((r) => setTimeout(r, ms));
 }
 
+function getFixHints(platform) {
+  const generic = [
+    "Prefer MCP config launch: command='npx', args=['-y', '@leo000001/codex-mcp']",
+    "Ensure stdout remains JSON-RPC only; route diagnostics to stderr.",
+  ];
+  if (platform === "win32") {
+    return [
+      'If shell wrapping is required, use: pwsh -NoProfile -Command "npx -y @leo000001/codex-mcp"',
+      ...generic,
+    ];
+  }
+  return generic;
+}
+
 async function main() {
   const args = parseArgs(process.argv.slice(2));
 
-  const command = args.overrideCommand
-    ? args.overrideCommand
-    : args.useNpx
-      ? "npx"
-      : "node";
+  const command = args.overrideCommand ? args.overrideCommand : args.useNpx ? "npx" : "node";
   const cmdArgs = args.overrideCommand
     ? args.overrideArgs
     : args.useNpx
@@ -100,7 +129,13 @@ async function main() {
     stdio: ["ignore", stdoutFd, stderrFd],
     windowsHide: true,
     shell: false,
-    env: process.env,
+    env: { ...process.env, CODEX_MCP_STDIO_MODE: args.stdioMode },
+  });
+  let exitCode = null;
+  let exitSignal = null;
+  child.on("exit", (code, signal) => {
+    exitCode = code;
+    exitSignal = signal;
   });
 
   await wait(args.timeoutMs);
@@ -122,13 +157,62 @@ async function main() {
   const stderr = fs.readFileSync(stderrPath, "utf8");
 
   const stdoutNonEmpty = stdout.trim().length > 0;
+  const runtimeFailure =
+    (typeof exitCode === "number" && exitCode !== 0) ||
+    (typeof exitSignal === "string" && exitSignal !== "SIGTERM" && exitSignal !== "SIGKILL");
+  const report = {
+    ok: !stdoutNonEmpty && !runtimeFailure,
+    mode: args.stdioMode,
+    command,
+    args: cmdArgs,
+    cwd: args.cwd,
+    timeoutMs: args.timeoutMs,
+    childExitCode: exitCode,
+    childExitSignal: exitSignal,
+    stdoutBytes: Buffer.byteLength(stdout, "utf8"),
+    stderrBytes: Buffer.byteLength(stderr, "utf8"),
+    stdoutPreview: stdout.slice(0, 400),
+    stderrPreview: stderr.slice(0, 400),
+    logs: {
+      stdoutPath,
+      stderrPath,
+    },
+    hints: getFixHints(process.platform),
+  };
+
+  if (args.reportJson) {
+    fs.writeFileSync(args.reportJson, JSON.stringify(report, null, 2), "utf8");
+  }
+
+  // eslint-disable-next-line no-console
+  console.error(`Mode: ${args.stdioMode}`);
+  // eslint-disable-next-line no-console
+  console.error(`Spawned: ${command} ${cmdArgs.join(" ")}`);
+
+  if (runtimeFailure) {
+    // eslint-disable-next-line no-console
+    console.error(`FAIL: child exited before healthy startup (exitCode=${exitCode}, signal=${exitSignal}).`);
+    for (const hint of report.hints) {
+      // eslint-disable-next-line no-console
+      console.error(`Hint: ${hint}`);
+    }
+    // eslint-disable-next-line no-console
+    console.error(`Captured logs: ${stdoutPath} (stdout), ${stderrPath} (stderr)`);
+    process.exitCode = 1;
+    return;
+  }
+
   if (stdoutNonEmpty) {
     // eslint-disable-next-line no-console
     console.error("FAIL: stdout is not clean. First 400 chars:\n");
     // eslint-disable-next-line no-console
-    console.error(stdout.slice(0, 400));
+    console.error(report.stdoutPreview);
     // eslint-disable-next-line no-console
     console.error("\n---\nHint: anything printed to stdout will break MCP stdio handshake.");
+    for (const hint of report.hints) {
+      // eslint-disable-next-line no-console
+      console.error(`Hint: ${hint}`);
+    }
     // eslint-disable-next-line no-console
     console.error(`Captured logs: ${stdoutPath} (stdout), ${stderrPath} (stderr)`);
     process.exitCode = 1;
@@ -150,4 +234,3 @@ main().catch((err) => {
   console.error("FAILED:", err?.stack || String(err));
   process.exitCode = 1;
 });
-

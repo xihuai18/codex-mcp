@@ -1,5 +1,6 @@
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import { resolveStdioMode } from "../utils/stdio-guard.js";
 
 const RESOURCE_SCHEME = "codex-mcp";
 
@@ -44,6 +45,7 @@ export function registerResources(
             node: process.version,
             platform: process.platform,
             arch: process.arch,
+            stdioMode: resolveStdioMode().mode,
             resources: Object.values(RESOURCE_URIS),
           },
           null,
@@ -114,9 +116,13 @@ export function registerResources(
         [
           '- Sessions are async — poll `codex_check(action="poll")` until status is `idle`/`error`/`cancelled`.',
           "- Store `nextCursor` and pass it back to avoid replaying events.",
+          "- If you omit `cursor`, codex-mcp continues from the session's last consumed cursor.",
           "- If `cursorResetTo` is present, cursor was stale; restart from `cursorResetTo`.",
           "- Approvals auto-decline after `approvalTimeoutMs`. Respond to `actions[]` promptly.",
           "- `advanced.images` must exist on server host; sent as `localImage` inputs.",
+          "- `CODEX_MCP_STDIO_MODE` controls startup guard behavior: `auto` (default), `strict`, `off`.",
+          "- On Windows PowerShell wrappers, prefer `pwsh -NoProfile` to avoid profile banner output.",
+          '- If Windows command turns still fail with profile noise, this is usually inside `codex app-server` shell execution; clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"`.',
           "",
         ].join("\n"),
         "text/markdown"

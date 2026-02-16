@@ -33,6 +33,7 @@
     "test:watch": "vitest",
     "prepublishOnly": "npm run build",
     "check:stdio": "node scripts/check-stdio.mjs",
+    "check:stdio:strict": "node scripts/check-stdio.mjs --mode strict",
     "smoke:mcp": "node scripts/mcp-smoke.mjs",
     "lint": "eslint src/ tests/",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",

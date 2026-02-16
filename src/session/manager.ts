@@ -45,6 +45,13 @@ import {
   CLEANUP_INTERVAL_MS,
 } from "../types.js";
 
+const COALESCED_PROGRESS_DELTA_METHODS = new Set<string>([
+  Methods.COMMAND_OUTPUT_DELTA,
+  Methods.FILE_CHANGE_OUTPUT_DELTA,
+  Methods.REASONING_SUMMARY_DELTA,
+]);
+const MAX_COALESCED_DELTA_CHARS = 4096;
+
 export interface SessionManagerOptions {
   /** Inject AppServerClient factory (for tests). */
   createClient?: () => AppServerClient;
@@ -100,6 +107,7 @@ export class SessionManager {
     const session: SessionInfo = {
       sessionId,
       status: "running",
+      lastEventCursor: 0,
       createdAt: now,
       lastActiveAt: now,
       approvalTimeoutMs,
@@ -401,6 +409,7 @@ export class SessionManager {
     const newSession: SessionInfo = {
       sessionId: newSessionId,
       status: "idle",
+      lastEventCursor: 0,
       createdAt: now,
       lastActiveAt: now,
       approvalTimeoutMs: session.approvalTimeoutMs,
@@ -450,18 +459,19 @@ export class SessionManager {
 
   // ── Event Polling ────────────────────────────────────────────────
 
-  pollEvents(sessionId: string, cursor = 0, maxEvents = DEFAULT_MAX_EVENTS): CheckResult {
+  pollEvents(sessionId: string, cursor?: number, maxEvents = DEFAULT_MAX_EVENTS): CheckResult {
     const session = this.getSessionOrThrow(sessionId);
     const buf = session.eventBuffer;
+    const effectiveCursor = cursor ?? session.lastEventCursor;
 
     // Find events with id >= cursor
-    let events = buf.events.filter((e) => e.id >= cursor);
+    let events = buf.events.filter((e) => e.id >= effectiveCursor);
     let cursorResetTo: number | undefined;
 
     // Check if cursor is stale (events were evicted)
     if (buf.events.length > 0) {
       const earliest = buf.events[0].id;
-      if (earliest > cursor) {
+      if (earliest > effectiveCursor) {
         cursorResetTo = earliest;
         events = buf.events;
       }
@@ -472,7 +482,8 @@ export class SessionManager {
       events = events.slice(0, maxEvents);
     }
 
-    const nextCursor = events.length > 0 ? events[events.length - 1].id + 1 : cursor;
+    const nextCursor = events.length > 0 ? events[events.length - 1].id + 1 : effectiveCursor;
+    session.lastEventCursor = nextCursor;
 
     // Collect pending actions
     const actions: CheckResult["actions"] = [];
@@ -691,6 +702,7 @@ export class SessionManager {
 
       switch (method) {
         case Methods.TURN_STARTED:
+          if (session.status === "cancelled") break;
           session.activeTurnId =
             ((p.turn as Record<string, unknown>)?.id as string | undefined) ??
             (typeof p.turnId === "string" ? p.turnId : undefined);
@@ -698,6 +710,7 @@ export class SessionManager {
           break;
 
         case Methods.TURN_COMPLETED: {
+          if (session.status === "cancelled") break;
           const turnObj = p.turn as Record<string, unknown> | undefined;
           const completedTurnId =
             (typeof p.turnId === "string" ? p.turnId : undefined) ??
@@ -720,6 +733,7 @@ export class SessionManager {
         }
 
         case Methods.ERROR:
+          if (session.status === "cancelled") break;
           if (!(p.willRetry as boolean)) {
             session.status = "error";
           }
@@ -1147,6 +1161,8 @@ function normalizeOptionalString(value: unknown): string | undefined {
 }
 
 function pushEvent(buf: EventBuffer, type: SessionEventType, data: unknown, pinned = false): void {
+  if (tryCoalesceProgressDelta(buf, type, data, pinned)) return;
+
   buf.events.push({
     id: buf.nextId++,
     type,
@@ -1155,6 +1171,54 @@ function pushEvent(buf: EventBuffer, type: SessionEventType, data: unknown, pinn
     pinned,
   });
   evictEvents(buf);
+}
+
+function tryCoalesceProgressDelta(
+  buf: EventBuffer,
+  type: SessionEventType,
+  data: unknown,
+  pinned: boolean
+): boolean {
+  if (type !== "progress" || pinned || buf.events.length === 0) return false;
+  if (!isRecord(data)) return false;
+
+  const method = data.method;
+  const delta = data.delta;
+  const itemId = data.itemId;
+  const turnId = data.turnId;
+  if (
+    typeof method !== "string" ||
+    !COALESCED_PROGRESS_DELTA_METHODS.has(method) ||
+    typeof delta !== "string" ||
+    typeof itemId !== "string"
+  ) {
+    return false;
+  }
+
+  const last = buf.events[buf.events.length - 1];
+  if (last.type !== "progress" || last.pinned || !isRecord(last.data)) return false;
+
+  const lastMethod = last.data.method;
+  const lastItemId = last.data.itemId;
+  const lastTurnId = last.data.turnId;
+  const lastDelta = last.data.delta;
+  if (
+    lastMethod !== method ||
+    lastItemId !== itemId ||
+    lastTurnId !== turnId ||
+    typeof lastDelta !== "string"
+  ) {
+    return false;
+  }
+
+  if (lastDelta.length + delta.length > MAX_COALESCED_DELTA_CHARS) return false;
+
+  last.data = {
+    ...last.data,
+    delta: `${lastDelta}${delta}`,
+  };
+  last.timestamp = new Date().toISOString();
+  return true;
 }
 
 function evictEvents(buf: EventBuffer): void {
