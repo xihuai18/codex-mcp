@@ -115,7 +115,7 @@ export function registerResources(
           "- Sessions are async — poll `codex_check(action=\"poll\")` until status is `idle`/`error`/`cancelled`.",
           "- Store `nextCursor` and pass it back to avoid replaying events.",
           "- If `cursorResetTo` is present, cursor was stale; restart from `cursorResetTo`.",
-          "- Approvals auto-decline after `approvalTimeoutMs` (default 60s). Respond to `actions[]` promptly.",
+          "- Approvals auto-decline after `approvalTimeoutMs`. Respond to `actions[]` promptly.",
           "- `advanced.images` must exist on server host; sent as `localImage` inputs.",
           "",
         ].join("\n"),
@@ -123,4 +123,3 @@ export function registerResources(
       )
   );
 }
-

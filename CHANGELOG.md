@@ -22,6 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `SessionManager` now deduplicates concurrent `cancelSession` calls and prevents terminal sessions from re-entering `waiting_approval` on late server requests
 - Approval and user-input timeout timers now call `.unref()` to avoid blocking process exit
 - Documentation aligned with implementation details for event eviction and e2e guidance
+- Tool input defaults are now defined in schema (`cursor`, `maxEvents`, `includeSensitive`, `advanced.approvalTimeoutMs`) and client-facing text avoids duplicated default descriptions
 
 ## [0.1.0] - 2026-02-15
 

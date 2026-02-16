@@ -18,6 +18,8 @@ import {
   SESSION_ACTIONS,
   CHECK_ACTIONS,
   ALL_DECISIONS,
+  DEFAULT_APPROVAL_TIMEOUT_MS,
+  DEFAULT_MAX_EVENTS,
   ErrorCode,
 } from "./types.js";
 import { redactPaths } from "./utils/redact.js";
@@ -112,8 +114,9 @@ export function createServer(serverCwd: string): McpServer {
               .number()
               .int()
               .positive()
+              .default(DEFAULT_APPROVAL_TIMEOUT_MS)
               .optional()
-              .describe("Auto-decline timeout in ms (default: 60000)"),
+              .describe("Auto-decline timeout in ms"),
           })
           .optional()
           .describe("Low-frequency settings"),
@@ -213,7 +216,11 @@ export function createServer(serverCwd: string): McpServer {
       inputSchema: {
         action: z.enum(SESSION_ACTIONS),
         sessionId: z.string().optional().describe("Required for get/cancel/interrupt/fork"),
-        includeSensitive: z.boolean().optional().describe("Include cwd/config in get (default: false)"),
+        includeSensitive: z
+          .boolean()
+          .default(false)
+          .optional()
+          .describe("Include cwd/config in get"),
       },
       outputSchema: {
         sessions: z.array(publicSessionInfoSchema).optional(),
@@ -283,8 +290,14 @@ respond_user_input: Answer input request. Pass requestId + answers.`,
       inputSchema: {
         action: z.enum(CHECK_ACTIONS),
         sessionId: z.string().describe("Target session ID"),
-        cursor: z.number().int().nonnegative().optional().describe("Event offset (default: 0)"),
-        maxEvents: z.number().int().positive().optional().describe("Max events per poll (default: 200)"),
+        cursor: z.number().int().nonnegative().default(0).optional().describe("Event offset"),
+        maxEvents: z
+          .number()
+          .int()
+          .positive()
+          .default(DEFAULT_MAX_EVENTS)
+          .optional()
+          .describe("Max events per poll"),
         // respond_approval
         requestId: z.string().optional().describe("Request ID from actions[]"),
         decision: z

@@ -211,7 +211,7 @@ Query a running session for events, respond to approval requests, or answer user
 - `cursor`: the first event id you want (use the previous `nextCursor`)
 - `nextCursor`: pass this back on the next poll
 - `cursorResetTo`: when present, older events were evicted; restart from this cursor to avoid gaps
-- `maxEvents`: max events returned per call (default 200)
+- `maxEvents`: max events returned per call
 
 Event types include `output`, `progress`, `approval_request`, `approval_result`, `result`, `error`.
 Approvals/results/errors are pinned to reduce eviction risk.
@@ -224,7 +224,7 @@ When the agent requests approval or user input, `poll` includes an `actions[]` l
   - For command approvals, `acceptWithExecpolicyAmendment` is supported and requires `execpolicyAmendment`.
 - `respond_user_input`: send `answers` keyed by `questionId`.
 
-By default, pending approvals auto-decline after 60 seconds (configurable via `codex.advanced.approvalTimeoutMs`).
+Pending approvals auto-decline after `advanced.approvalTimeoutMs`.
 
 ## Session Lifecycle & Cleanup
 
