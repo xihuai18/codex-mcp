@@ -294,7 +294,9 @@ npm run typecheck
 npm test
 ```
 
-End-to-end local test plan (after installing/configuring in an MCP client): `docs/e2e-local-test-plan.zh-CN.md`
+End-to-end local test plan (after installing/configuring in an MCP client):
+- Full guide (Chinese): `docs/e2e-local-test-plan.zh-CN.md`
+- Quick English checklist: run `codex` → poll with `codex_check(action="poll")` → respond via `respond_approval`/`respond_user_input` if `actions[]` appears → continue polling until `status` is `idle`/`error`/`cancelled`.
 
 ## Project Policies
 

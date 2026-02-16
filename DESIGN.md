@@ -1,5 +1,7 @@
 # codex-mcp 设计文档
 
+> English quick summary: `codex-mcp` is an MCP stdio server that exposes Codex `app-server` via 4 tools (`codex`, `codex_reply`, `codex_session`, `codex_check`) plus 3 read-only resources. Each session runs in an independent `codex app-server` subprocess and is polled asynchronously with cursor-based events.
+
 ## 概述
 MCP server，基于 OpenAI Codex app-server JSON-RPC 协议，通过 4 个 MCP 工具和 3 个静态只读 Resources 暴露 Codex agent 能力。
 
@@ -215,6 +217,7 @@ advanced 参数（低频）：
 - `waiting_approval` → `cancelled`: 用户取消
 - `idle` → `running`: codex_reply 发送新消息
 - `error` → `running`: codex_reply 重试
+- `cancelled` / `error` 状态收到晚到审批请求时：直接返回拒绝响应，不再创建 pending request（防止状态回跳）
 
 ## 事件缓冲策略
 
@@ -262,8 +265,8 @@ interface SessionEvent {
 
 ### 淘汰策略
 1. events.length > maxSize: 淘汰最旧的非 pinned 事件
-2. 全部 pinned: 优先淘汰旧的 approval_result，然后已解决的 approval_request
-3. events.length > hardMaxSize: 强制淘汰已解决的审批事件
+2. 全部 pinned: 优先淘汰旧的 `approval_result` 事件
+3. events.length > hardMaxSize: 强制淘汰最旧事件（`shift`，包括 pinned）
 
 ### Cursor 分页
 - 客户端传 cursor（上次 nextCursor 值）
@@ -373,7 +376,7 @@ SessionManager 运行定期清理任务（每 60s 检查一次）：
 - idle 超过 30 分钟 → 自动终止子进程并清理
 - running 超过 4 小时 → 自动终止（防止僵尸会话）
 - cancelled/error 状态超过 5 分钟 → 清理内存中的会话记录
-- 清理时推送 error 事件通知客户端
+- 清理触发 `cancelSession` 时会推送 `progress` + `result(status=cancelled)`；不会额外推送 `error` 事件
 
 ## 配置解析流程
 

@@ -19,6 +19,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `effort` description now suggests adjusting based on task complexity
 - `replyToSession` now persists successful `model` / `approvalPolicy` / `sandbox` / `cwd` overrides to session metadata
 - Process `exit` / `error` paths now emit terminal `result` payloads so `codex_check(action=\"poll\")` always includes a terminal `result` in error states
+- `SessionManager` now deduplicates concurrent `cancelSession` calls and prevents terminal sessions from re-entering `waiting_approval` on late server requests
+- Approval and user-input timeout timers now call `.unref()` to avoid blocking process exit
+- Documentation aligned with implementation details for event eviction and e2e guidance
 
 ## [0.1.0] - 2026-02-15
 

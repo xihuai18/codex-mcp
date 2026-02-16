@@ -277,7 +277,7 @@ export function createServer(serverCwd: string): McpServer {
 
 poll: Events since cursor (output, progress, approvals, errors, result). Returns nextCursor + actions[] if awaiting response.
 
-respond_approval: Approve/deny approval. Pass requestId + decision.
+respond_approval: Respond to approval. Pass requestId + decision.
 
 respond_user_input: Answer input request. Pass requestId + answers.`,
       inputSchema: {
@@ -290,7 +290,9 @@ respond_user_input: Answer input request. Pass requestId + answers.`,
         decision: z
           .enum(ALL_DECISIONS)
           .optional()
-          .describe("Approval decision (approve/deny/acceptWithExecpolicyAmendment)"),
+          .describe(
+            "Approval decision: accept / acceptForSession / acceptWithExecpolicyAmendment / decline / cancel"
+          ),
         execpolicyAmendment: z.array(z.string()).optional().describe("For acceptWithExecpolicyAmendment only"),
         denyMessage: z.string().optional().describe("Deny reason (not sent to agent)"),
         // respond_user_input

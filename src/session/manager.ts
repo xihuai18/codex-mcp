@@ -55,6 +55,7 @@ export interface SessionManagerOptions {
 export class SessionManager {
   private sessions = new Map<string, SessionInfo>();
   private clients = new Map<string, AppServerClient>();
+  private cancellationInFlight = new Map<string, Promise<void>>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
   private createClient: () => AppServerClient;
 
@@ -283,6 +284,22 @@ export class SessionManager {
   }
 
   async cancelSession(sessionId: string, reason?: string): Promise<void> {
+    const existing = this.cancellationInFlight.get(sessionId);
+    if (existing) {
+      await existing;
+      return;
+    }
+
+    const cancellation = this.performCancelSession(sessionId, reason);
+    this.cancellationInFlight.set(sessionId, cancellation);
+    try {
+      await cancellation;
+    } finally {
+      this.cancellationInFlight.delete(sessionId);
+    }
+  }
+
+  private async performCancelSession(sessionId: string, reason?: string): Promise<void> {
     const session = this.getSessionOrThrow(sessionId);
 
     // Idempotent: already cancelled
@@ -624,6 +641,7 @@ export class SessionManager {
       clearInterval(this.cleanupTimer);
       this.cleanupTimer = null;
     }
+    this.cancellationInFlight.clear();
 
     // Clear all pending request timers
     for (const [, session] of this.sessions) {
@@ -746,6 +764,12 @@ export class SessionManager {
 
     // Handle server-initiated requests
     client.onServerRequest((id: RequestId, method: string, params: unknown) => {
+      // Do not transition terminal sessions back to waiting_approval.
+      if (session.status === "cancelled" || session.status === "error") {
+        respondToTerminalSessionRequest(client, id, method);
+        return;
+      }
+
       session.lastActiveAt = new Date().toISOString();
       const p = params as Record<string, unknown>;
 
@@ -766,7 +790,7 @@ export class SessionManager {
           };
 
           // Timeout
-          pending.timeoutHandle = setTimeout(() => {
+          pending.timeoutHandle = createUnrefTimeout(() => {
             if (!pending.resolved) {
               pending.resolved = true;
               pending.decision = "decline";
@@ -787,7 +811,9 @@ export class SessionManager {
                 true
               );
               session.pendingRequests.delete(requestId);
-              if (session.pendingRequests.size === 0) session.status = "running";
+              if (session.pendingRequests.size === 0 && session.status === "waiting_approval") {
+                session.status = "running";
+              }
             }
           }, approvalTimeoutMs);
 
@@ -823,7 +849,7 @@ export class SessionManager {
             respond: (result) => client.respondToServer(id, result),
           };
 
-          pending.timeoutHandle = setTimeout(() => {
+          pending.timeoutHandle = createUnrefTimeout(() => {
             if (!pending.resolved) {
               pending.resolved = true;
               pending.decision = "decline";
@@ -844,7 +870,9 @@ export class SessionManager {
                 true
               );
               session.pendingRequests.delete(requestId);
-              if (session.pendingRequests.size === 0) session.status = "running";
+              if (session.pendingRequests.size === 0 && session.status === "waiting_approval") {
+                session.status = "running";
+              }
             }
           }, approvalTimeoutMs);
 
@@ -878,7 +906,7 @@ export class SessionManager {
             respond: (result) => client.respondToServer(id, result),
           };
 
-          pending.timeoutHandle = setTimeout(() => {
+          pending.timeoutHandle = createUnrefTimeout(() => {
             if (!pending.resolved) {
               pending.resolved = true;
               try {
@@ -897,7 +925,9 @@ export class SessionManager {
                 true
               );
               session.pendingRequests.delete(requestId);
-              if (session.pendingRequests.size === 0) session.status = "running";
+              if (session.pendingRequests.size === 0 && session.status === "waiting_approval") {
+                session.status = "running";
+              }
             }
           }, approvalTimeoutMs);
 
@@ -983,17 +1013,17 @@ export class SessionManager {
       const lastActive = new Date(session.lastActiveAt).getTime();
       if (Number.isNaN(lastActive)) {
         // Invalid timestamp — clean up immediately
-        this.cancelSession(id, "Invalid timestamp").catch(() => {});
+        this.requestCancellation(id, "Invalid timestamp");
         continue;
       }
       const age = now - lastActive;
 
       if (session.status === "idle" && age > DEFAULT_IDLE_CLEANUP_MS) {
-        this.cancelSession(id, "Idle timeout").catch(() => {});
+        this.requestCancellation(id, "Idle timeout");
       } else if (session.status === "waiting_approval" && age > DEFAULT_RUNNING_CLEANUP_MS) {
-        this.cancelSession(id, "Approval timeout").catch(() => {});
+        this.requestCancellation(id, "Approval timeout");
       } else if (session.status === "running" && age > DEFAULT_RUNNING_CLEANUP_MS) {
-        this.cancelSession(id, "Running timeout").catch(() => {});
+        this.requestCancellation(id, "Running timeout");
       } else if (
         (session.status === "cancelled" || session.status === "error") &&
         age > DEFAULT_TERMINAL_CLEANUP_MS
@@ -1006,6 +1036,11 @@ export class SessionManager {
         this.sessions.delete(id);
       }
     }
+  }
+
+  private requestCancellation(sessionId: string, reason: string): void {
+    if (this.cancellationInFlight.has(sessionId)) return;
+    this.cancelSession(sessionId, reason).catch(() => {});
   }
 }
 
@@ -1063,6 +1098,46 @@ function setTerminalErrorResult(session: SessionInfo, message: string): void {
   );
 }
 
+function createUnrefTimeout(handler: () => void, timeoutMs: number): ReturnType<typeof setTimeout> {
+  const timer = setTimeout(handler, timeoutMs);
+  if (typeof (timer as { unref?: () => void }).unref === "function") {
+    (timer as { unref: () => void }).unref();
+  }
+  return timer;
+}
+
+function respondToTerminalSessionRequest(
+  client: AppServerClient,
+  id: RequestId,
+  method: string
+): void {
+  switch (method) {
+    case Methods.COMMAND_APPROVAL:
+    case Methods.FILE_CHANGE_APPROVAL:
+      client.respondToServer(id, { decision: "cancel" });
+      break;
+    case Methods.USER_INPUT_REQUEST:
+      client.respondToServer(id, { answers: {} } as UserInputRequestResponse);
+      break;
+    case Methods.DYNAMIC_TOOL_CALL:
+      client.respondToServer(id, {
+        success: false,
+        contentItems: [{ type: "inputText", text: "Session is terminal" }],
+      } as DynamicToolCallResponse);
+      break;
+    case Methods.AUTH_TOKEN_REFRESH:
+      client.respondErrorToServer(id, -32601, "Session is terminal");
+      break;
+    case Methods.LEGACY_PATCH_APPROVAL:
+    case Methods.LEGACY_EXEC_APPROVAL:
+      client.respondToServer(id, { decision: "denied" } as LegacyApprovalResponse);
+      break;
+    default:
+      client.respondErrorToServer(id, -32601, `Unhandled server request: ${method}`);
+      break;
+  }
+}
+
 function pushEvent(buf: EventBuffer, type: SessionEventType, data: unknown, pinned = false): void {
   buf.events.push({
     id: buf.nextId++,
@@ -1082,7 +1157,7 @@ function evictEvents(buf: EventBuffer): void {
     buf.events.splice(idx, 1);
   }
 
-  // If still over soft limit (all pinned): evict old approval_result, then resolved approval_request
+  // If still over soft limit (all pinned): evict old approval_result events first.
   while (buf.events.length > buf.maxSize) {
     const idx = buf.events.findIndex((e) => e.type === "approval_result");
     if (idx === -1) break;

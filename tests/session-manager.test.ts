@@ -335,6 +335,77 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(poll.result?.error).toContain("Cancelled by test");
   });
 
+  it("deduplicates concurrent cancellation and destroys client once", async () => {
+    let releaseDestroy: (() => void) | undefined;
+    const destroyGate = new Promise<void>((resolve) => {
+      releaseDestroy = resolve;
+    });
+    client.destroy = vi.fn(async () => {
+      await destroyGate;
+    });
+
+    const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    const cancel1 = manager.cancelSession(sessionId, "one");
+    const cancel2 = manager.cancelSession(sessionId, "two");
+
+    await Promise.resolve();
+    expect(client.destroy).toHaveBeenCalledTimes(1);
+
+    releaseDestroy?.();
+    await Promise.all([cancel1, cancel2]);
+    expect(manager.pollEvents(sessionId).status).toBe("cancelled");
+  });
+
+  it("responds immediately to late approval requests after cancellation", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    await manager.cancelSession(sessionId, "Cancelled by test");
+    client.respondToServer.mockClear();
+
+    client.emitServerRequest(77, Methods.COMMAND_APPROVAL, {
+      itemId: "item_late_approval",
+      threadId,
+      turnId: "turn_1",
+      command: "echo late",
+      cwd: workspace,
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 200);
+    expect(client.respondToServer).toHaveBeenCalledWith(77, { decision: "cancel" });
+    expect(poll.status).toBe("cancelled");
+    expect(poll.actions).toBeUndefined();
+  });
+
+  it("unrefs approval timeout timers so they do not block process exit", async () => {
+    const unrefSpy = vi.fn();
+    const timeoutHandle = { unref: unrefSpy } as unknown as ReturnType<typeof setTimeout>;
+    const setTimeoutSpy = vi
+      .spyOn(globalThis, "setTimeout")
+      .mockImplementation(((handler: TimerHandler, timeout?: number) => {
+        void handler;
+        void timeout;
+        return timeoutHandle;
+      }) as typeof setTimeout);
+
+    try {
+      const { threadId } = await manager.createSession("hi", workspace, {}, "medium", {
+        approvalTimeoutMs: 5,
+      });
+      client.emitServerRequest(91, Methods.COMMAND_APPROVAL, {
+        itemId: "item_unreftimer",
+        threadId,
+        turnId: "turn_1",
+        command: "echo hi",
+        cwd: workspace,
+      });
+
+      expect(setTimeoutSpy).toHaveBeenCalled();
+      expect(unrefSpy).toHaveBeenCalled();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
   it("validates localImage paths before starting the turn", async () => {
     await expect(
       manager.createSession("hi", workspace, {}, "medium", { images: ["./nope.png"] })
