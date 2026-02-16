@@ -48,9 +48,10 @@ import {
 const COALESCED_PROGRESS_DELTA_METHODS = new Set<string>([
   Methods.COMMAND_OUTPUT_DELTA,
   Methods.FILE_CHANGE_OUTPUT_DELTA,
+  Methods.REASONING_TEXT_DELTA,
   Methods.REASONING_SUMMARY_DELTA,
 ]);
-const MAX_COALESCED_DELTA_CHARS = 4096;
+const MAX_COALESCED_DELTA_CHARS = 16_384;
 
 export interface SessionManagerOptions {
   /** Inject AppServerClient factory (for tests). */
@@ -373,7 +374,7 @@ export class SessionManager {
 
     if (session.status !== "running" && session.status !== "waiting_approval") {
       throw new Error(
-        `Error [${ErrorCode.SESSION_BUSY}]: Cannot interrupt session in ${session.status} state`
+        `Error [${ErrorCode.SESSION_NOT_RUNNING}]: Cannot interrupt session in ${session.status} state`
       );
     }
 
@@ -514,6 +515,22 @@ export class SessionManager {
           ? session.lastResult
           : undefined,
     };
+  }
+
+  /**
+   * Monotonic polling helper for respond_* flows.
+   * Uses max(providedCursor, session.lastEventCursor) to avoid replaying
+   * already-consumed history when clients send stale/default cursors.
+   */
+  pollEventsMonotonic(
+    sessionId: string,
+    cursor?: number,
+    maxEvents = DEFAULT_MAX_EVENTS
+  ): CheckResult {
+    const session = this.getSessionOrThrow(sessionId);
+    const effectiveCursor =
+      typeof cursor === "number" ? Math.max(cursor, session.lastEventCursor) : undefined;
+    return this.pollEvents(sessionId, effectiveCursor, maxEvents);
   }
 
   // ── Approval Response ────────────────────────────────────────────
@@ -732,18 +749,34 @@ export class SessionManager {
           break;
         }
 
-        case Methods.ERROR:
+        case Methods.ERROR: {
           if (session.status === "cancelled") break;
-          if (!(p.willRetry as boolean)) {
+          const willRetry = p.willRetry as boolean;
+          if (!willRetry) {
             session.status = "error";
           }
           {
             const data: Record<string, unknown> = { method, ...p };
             if (typeof data.message === "string") data.message = redactPaths(data.message);
             if (typeof data.error === "string") data.error = redactPaths(data.error);
-            pushEvent(session.eventBuffer, "error", data, true);
+            if (willRetry) {
+              pushEvent(
+                session.eventBuffer,
+                "progress",
+                {
+                  ...data,
+                  method: "codex-mcp/reconnect",
+                  sourceMethod: method,
+                  phase: "retrying",
+                },
+                true
+              );
+            } else {
+              pushEvent(session.eventBuffer, "error", data, true);
+            }
           }
           break;
+        }
 
         case Methods.AGENT_MESSAGE_DELTA:
           pushEvent(session.eventBuffer, "output", { method, delta: p.delta, itemId: p.itemId });
@@ -1186,14 +1219,17 @@ function tryCoalesceProgressDelta(
   const delta = data.delta;
   const itemId = data.itemId;
   const turnId = data.turnId;
+  const itemKey = typeof itemId === "string" ? itemId : "";
+  const turnKey = typeof turnId === "string" ? turnId : "";
   if (
     typeof method !== "string" ||
     !COALESCED_PROGRESS_DELTA_METHODS.has(method) ||
-    typeof delta !== "string" ||
-    typeof itemId !== "string"
+    typeof delta !== "string"
   ) {
     return false;
   }
+  // Keep coalescing scoped to a stable stream key (itemId or turnId).
+  if (itemKey.length === 0 && turnKey.length === 0) return false;
 
   const last = buf.events[buf.events.length - 1];
   if (last.type !== "progress" || last.pinned || !isRecord(last.data)) return false;
@@ -1202,10 +1238,12 @@ function tryCoalesceProgressDelta(
   const lastItemId = last.data.itemId;
   const lastTurnId = last.data.turnId;
   const lastDelta = last.data.delta;
+  const lastItemKey = typeof lastItemId === "string" ? lastItemId : "";
+  const lastTurnKey = typeof lastTurnId === "string" ? lastTurnId : "";
   if (
     lastMethod !== method ||
-    lastItemId !== itemId ||
-    lastTurnId !== turnId ||
+    lastItemKey !== itemKey ||
+    lastTurnKey !== turnKey ||
     typeof lastDelta !== "string"
   ) {
     return false;

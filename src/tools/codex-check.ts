@@ -43,8 +43,9 @@ export function executeCodexCheck(
         const message = err instanceof Error ? err.message : String(err);
         return { error: message, isError: true };
       }
-      // Return current poll state after responding
-      return sessionManager.pollEvents(args.sessionId, args.cursor, args.maxEvents);
+      // For respond_* actions, use monotonic cursor progression to avoid replay
+      // when some MCP hosts send stale/default cursor values.
+      return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, args.maxEvents);
     }
 
     case "respond_user_input": {
@@ -60,7 +61,9 @@ export function executeCodexCheck(
         const message = err instanceof Error ? err.message : String(err);
         return { error: message, isError: true };
       }
-      return sessionManager.pollEvents(args.sessionId, args.cursor, args.maxEvents);
+      // For respond_* actions, use monotonic cursor progression to avoid replay
+      // when some MCP hosts send stale/default cursor values.
+      return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, args.maxEvents);
     }
 
     default:

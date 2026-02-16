@@ -116,13 +116,17 @@ export function registerResources(
         [
           '- Sessions are async — poll `codex_check(action="poll")` until status is `idle`/`error`/`cancelled`.',
           "- Store `nextCursor` and pass it back to avoid replaying events.",
+          "- For `respond_approval` / `respond_user_input`, cursor handling is monotonic (`max(cursor, sessionLastCursor)`) to avoid stale replay.",
           "- If you omit `cursor`, codex-mcp continues from the session's last consumed cursor.",
           "- If `cursorResetTo` is present, cursor was stale; restart from `cursorResetTo`.",
           "- Approvals auto-decline after `approvalTimeoutMs`. Respond to `actions[]` promptly.",
           "- `advanced.images` must exist on server host; sent as `localImage` inputs.",
           "- `CODEX_MCP_STDIO_MODE` controls startup guard behavior: `auto` (default), `strict`, `off`.",
           "- On Windows PowerShell wrappers, prefer `pwsh -NoProfile` to avoid profile banner output.",
+          "- Profile/banner stdout emitted before MCP handshake cannot be filtered by codex-mcp (stdout is protocol channel).",
           '- If Windows command turns still fail with profile noise, this is usually inside `codex app-server` shell execution; clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"`.',
+          "- If Windows output contains mojibake, enforce UTF-8 shell output (`chcp 65001`, `$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()`).",
+          '- Retryable transport/API interruptions are surfaced as progress event `method="codex-mcp/reconnect"`.',
           "",
         ].join("\n"),
         "text/markdown"

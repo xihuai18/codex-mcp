@@ -202,7 +202,7 @@ Query a running session for events, respond to approval requests, or answer user
 | --------------------- | -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `action`              | string   | Yes                               | `"poll"`, `"respond_approval"`, or `"respond_user_input"`                                                                                                                                        |
 | `sessionId`           | string   | Yes                               | Target session ID                                                                                                                                                                                |
-| `cursor`              | number   | No                                | Event cursor for incremental polling. If omitted, codex-mcp continues from the session's last consumed cursor.                                                                                |
+| `cursor`              | number   | No                                | Event cursor for incremental polling (`action="poll"`). For `respond_*`, codex-mcp applies monotonic cursor progression: `max(cursor, sessionLastCursor)`.                                   |
 | `maxEvents`           | number   | No                                | Max events per poll. Default: `200`                                                                                                                                                              |
 | `requestId`           | string   | For respond_approval/user_input   | Request ID from `actions[]`                                                                                                                                                                      |
 | `decision`            | string   | For respond_approval              | For command approvals: `"accept"`, `"acceptForSession"`, `"acceptWithExecpolicyAmendment"`, `"decline"`, `"cancel"`; for file changes: `"accept"`, `"acceptForSession"`, `"decline"`, `"cancel"` |
@@ -267,15 +267,17 @@ Tools return errors as:
 { "content": [{ "type": "text", "text": "Error [CODE]: message" }], "isError": true }
 ```
 
-Common codes include `INVALID_ARGUMENT`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, `REQUEST_NOT_FOUND`, `CANCELLED`, `INTERNAL`.
+Common codes include `INVALID_ARGUMENT`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, `SESSION_NOT_RUNNING`, `REQUEST_NOT_FOUND`, `CANCELLED`, `INTERNAL`.
 
 ## Client compatibility notes
 
 - Tool responses follow `@modelcontextprotocol/sdk`'s `CallToolResult` contract: `content` (JSON text for wide compatibility), optional `structuredContent` (the canonical object), and `isError`. Claude Desktop and other clients tend to surface the `content` text directly, which shows the raw JSON blob, so they should fall back to `structuredContent` when they want typed data (Cursor already does this automatically whenever structured output is available).
 - When an operation fails we set `isError: true` and return `Error [CODE]: message` in the `content` array instead of raising an MCP transport error. This keeps the STDIO channel healthy so Claude, Cursor, and other MCP clients stay connected even when a tool reports a problem.
 - `codex-mcp` uses the MCP stdio transport (`src/index.ts`), so stdout is reserved for newline-delimited JSON and all diagnostics go to stderr. Anything else on stdout—including shell/profile banners (e.g., PowerShell's oh-my-posh warning) or CLI wrappers that print prompts—will break the MCP handshake for Claude/Cursor. Run `pwsh -NoProfile`, disable profile banners, or wrap the command so stdout stays quiet before piping it into the client.
-- Windows command execution inside `codex app-server` may still inherit PowerShell profile side effects in some environments; if command turns are noisy or fail with profile errors, clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"` to reduce approval churn.
+- Windows command execution inside `codex app-server` may still inherit PowerShell profile side effects in some environments. This cannot be filtered by codex-mcp once emitted on stdout; if command turns are noisy or fail with profile errors, clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"` to reduce approval churn.
+- If Windows command output shows mojibake, enforce UTF-8 in the shell (`chcp 65001` and `$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()`).
 - Startup guard behavior is controlled by `CODEX_MCP_STDIO_MODE` (`auto`/`strict`/`off`). Use `strict` in CI or hardened environments to fail fast on elevated contamination risk.
+- Retryable transport/API interruptions are emitted as `progress` events with `data.method="codex-mcp/reconnect"` and `willRetry=true`, so clients can surface reconnect state without treating it as terminal failure.
 - Approval/user-input flows rely on the `actions[]` array returned by `codex_check(action="poll")`. Claude and Cursor render approval buttons from this payload, so they need to poll at `pollInterval`, honour `cursorResetTo`, and reply within `approvalTimeoutMs` to avoid automatic declines.
 
 ## Typical Workflow

@@ -55,5 +55,12 @@ describe("resources", () => {
     expect(typeof payload.platform).toBe("string");
     expect(typeof payload.node).toBe("string");
     expect(typeof payload.stdioMode).toBe("string");
+
+    const gotchas = registered.find((r) => r.uri === RESOURCE_URIS.gotchas);
+    expect(gotchas?.mimeType).toBe("text/markdown");
+    const gotchasResult = gotchas?.read() as { contents?: Array<{ text?: string }> };
+    const gotchasText = gotchasResult.contents?.[0]?.text ?? "";
+    expect(gotchasText).toContain("monotonic");
+    expect(gotchasText).toContain("codex-mcp/reconnect");
   });
 });

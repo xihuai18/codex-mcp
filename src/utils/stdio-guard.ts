@@ -93,8 +93,7 @@ export function runStdioPreflight(opts: StdioPreflightOptions = {}): StdioPrefli
     );
   }
 
-  const riskLevel: StdioPreflightResult["riskLevel"] =
-    riskReasons.length > 0 ? "elevated" : "low";
+  const riskLevel: StdioPreflightResult["riskLevel"] = riskReasons.length > 0 ? "elevated" : "low";
   const shouldBlock = modeResolution.mode === "strict" && riskReasons.length > 0;
 
   return {
@@ -112,9 +111,9 @@ export function runStdioPreflight(opts: StdioPreflightOptions = {}): StdioPrefli
 function looksLikePowerShell(env: NodeJS.ProcessEnv): boolean {
   return Boolean(
     env.POWERSHELL_DISTRIBUTION_CHANNEL ||
-      env.PSModulePath ||
-      env.PSExecutionPolicyPreference ||
-      env.PSModuleAnalysisCachePath
+    env.PSModulePath ||
+    env.PSExecutionPolicyPreference ||
+    env.PSModuleAnalysisCachePath
   );
 }
 
@@ -122,11 +121,13 @@ function buildFixSuggestions(platform: NodeJS.Platform): string[] {
   const generic = [
     "Prefer direct MCP config launch: command='npx', args=['-y', '@leo000001/codex-mcp']",
     "Keep server stdout strictly JSON-RPC; route diagnostics to stderr only.",
+    "codex-mcp cannot sanitize shell/profile stdout once emitted before MCP handshake.",
   ];
 
   if (platform === "win32") {
     return [
       'If shell wrapping is required, use: pwsh -NoProfile -Command "npx -y @leo000001/codex-mcp"',
+      "Disable noisy PowerShell profile output (oh-my-posh banners, startup prompts, etc.).",
       ...generic,
     ];
   }

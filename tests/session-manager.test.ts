@@ -154,7 +154,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(result.nextCursor).toBe(result.events[0].id + 1);
   });
 
-  it("respects explicit cursor in respond_approval", async () => {
+  it("ignores stale explicit cursor in respond_approval and continues incrementally", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
       threadId,
@@ -186,13 +186,10 @@ describe("SessionManager protocol compatibility + approvals", () => {
     );
 
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
-    const result = poll2 as {
-      events: Array<{ id: number; type: string }>;
-    };
-    expect(result.events.length).toBeGreaterThanOrEqual(3);
-    expect(result.events[0].id).toBe(0);
-    expect(result.events.some((event) => event.type === "approval_request")).toBe(true);
-    expect(result.events.some((event) => event.type === "approval_result")).toBe(true);
+    const result = poll2 as { events: Array<{ id: number; type: string }> };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].type).toBe("approval_result");
+    expect(result.events[0].id).toBeGreaterThanOrEqual(poll1.nextCursor);
   });
 
   it("responds to user input request and clears pending request", async () => {
@@ -251,6 +248,43 @@ describe("SessionManager protocol compatibility + approvals", () => {
         sessionId,
         requestId: requestId!,
         answers: { q1: { answers: ["A"] } },
+      },
+      manager
+    );
+
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    const result = poll2 as { events: Array<{ id: number; type: string }> };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].type).toBe("approval_result");
+    expect(result.events[0].id).toBeGreaterThanOrEqual(poll1.nextCursor);
+  });
+
+  it("ignores stale explicit cursor in respond_user_input and continues incrementally", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_output_ui_stale",
+      delta: "hello",
+    });
+    client.emitServerRequest(14, Methods.USER_INPUT_REQUEST, {
+      itemId: "item_ui_3",
+      threadId,
+      turnId: "turn_1",
+      questions: [{ questionId: "q1", question: "Pick one" }],
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_user_input",
+        sessionId,
+        requestId: requestId!,
+        answers: { q1: { answers: ["A"] } },
+        cursor: 0,
       },
       manager
     );
@@ -497,6 +531,54 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect((summaries[0].data as { delta?: string }).delta).toBe("hello world");
   });
 
+  it("coalesces reasoning summary deltas when itemId is missing but turnId matches", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    client.emitNotification(Methods.REASONING_SUMMARY_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      delta: "first ",
+    });
+    client.emitNotification(Methods.REASONING_SUMMARY_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      delta: "second",
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 50);
+    const summaries = poll.events.filter(
+      (event) =>
+        event.type === "progress" &&
+        (event.data as { method?: string }).method === Methods.REASONING_SUMMARY_DELTA
+    );
+    expect(summaries).toHaveLength(1);
+    expect((summaries[0].data as { delta?: string }).delta).toBe("first second");
+  });
+
+  it("coalesces reasoning text deltas for the same turn", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    client.emitNotification(Methods.REASONING_TEXT_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      delta: "A",
+    });
+    client.emitNotification(Methods.REASONING_TEXT_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      delta: "B",
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 50);
+    const reasoning = poll.events.filter(
+      (event) =>
+        event.type === "progress" &&
+        (event.data as { method?: string }).method === Methods.REASONING_TEXT_DELTA
+    );
+    expect(reasoning).toHaveLength(1);
+    expect((reasoning[0].data as { delta?: string }).delta).toBe("AB");
+  });
+
   it("clears pending requests when app-server exits", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(9, Methods.COMMAND_APPROVAL, {
@@ -517,6 +599,42 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(poll.result?.error).toContain("app-server exited unexpectedly");
     expect(poll.events.some((event) => event.type === "result")).toBe(true);
     expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
+  });
+
+  it("emits reconnect progress for retryable app-server errors", async () => {
+    const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    client.emitNotification(Methods.ERROR, {
+      message: "temporary disconnect",
+      willRetry: true,
+      retryCount: 1,
+      maxRetries: 5,
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 200);
+    expect(poll.status).toBe("running");
+    const reconnect = poll.events.find(
+      (event) =>
+        event.type === "progress" &&
+        (event.data as { method?: string }).method === "codex-mcp/reconnect"
+    );
+    expect(reconnect).toBeDefined();
+    expect((reconnect!.data as { phase?: string }).phase).toBe("retrying");
+    expect((reconnect!.data as { willRetry?: boolean }).willRetry).toBe(true);
+    expect(poll.events.some((event) => event.type === "error")).toBe(false);
+  });
+
+  it("keeps terminal error semantics for non-retryable app-server errors", async () => {
+    const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    client.emitNotification(Methods.ERROR, {
+      message: "fatal error",
+      willRetry: false,
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 200);
+    expect(poll.status).toBe("error");
+    expect(poll.events.some((event) => event.type === "error")).toBe(true);
   });
 
   it("produces a terminal result when cancelled", async () => {
@@ -659,6 +777,17 @@ describe("SessionManager protocol compatibility + approvals", () => {
     const poll = manager.pollEvents(sessionId, 0, 200);
     expect(poll.status).toBe("idle");
     expect(poll.result?.turnId).toBe("turn_v1");
+  });
+
+  it("returns SESSION_NOT_RUNNING when interrupting an idle session", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.TURN_COMPLETED, {
+      threadId,
+      turnId: "turn_done",
+      turn: { status: "completed" },
+    });
+
+    await expect(manager.interruptSession(sessionId)).rejects.toThrow("SESSION_NOT_RUNNING");
   });
 
   it("can interrupt immediately after codex_reply using turnStart response id (before turn/started notification)", async () => {
