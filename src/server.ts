@@ -162,7 +162,7 @@ export function createServer(serverCwd: string): McpServer {
         effort: z.enum(EFFORT_LEVELS).optional().describe("Override effort"),
         summary: z.enum(SUMMARY_MODES).optional().describe("Override summary"),
         personality: z.enum(PERSONALITIES).optional().describe("Override personality"),
-        sandboxPolicy: z.enum(SANDBOX_MODES).optional().describe("Override sandbox"),
+        sandbox: z.enum(SANDBOX_MODES).optional().describe("Override sandbox"),
         cwd: z.string().optional().describe("Override cwd"),
         outputSchema: z
           .record(z.string(), z.unknown())

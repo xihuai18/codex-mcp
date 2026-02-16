@@ -43,6 +43,13 @@ describe("resources", () => {
     const text = readResult.contents?.[0]?.text ?? "";
     expect(text).toContain("advanced.config");
     expect(text).toContain("-c key=value");
+
+    const serverInfo = registered.find((r) => r.uri === RESOURCE_URIS.serverInfo);
+    expect(serverInfo?.mimeType).toBe("application/json");
+    const serverInfoResult = serverInfo?.read() as { contents?: Array<{ text?: string }> };
+    const payload = JSON.parse(serverInfoResult.contents?.[0]?.text ?? "{}") as Record<string, unknown>;
+    expect(payload.version).toBe("0.0.0-test");
+    expect(typeof payload.platform).toBe("string");
+    expect(typeof payload.node).toBe("string");
   });
 });
-

@@ -12,7 +12,7 @@ export interface CodexReplyParams {
   effort?: string;
   summary?: string;
   personality?: string;
-  sandboxPolicy?: string;
+  sandbox?: string;
   cwd?: string;
   outputSchema?: Record<string, unknown>;
 }
@@ -27,7 +27,7 @@ export async function executeCodexReply(
     effort: args.effort,
     summary: args.summary,
     personality: args.personality,
-    sandboxPolicy: args.sandboxPolicy,
+    sandbox: args.sandbox,
     cwd: args.cwd,
     outputSchema: args.outputSchema,
   });

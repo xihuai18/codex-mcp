@@ -1,7 +1,7 @@
 # codex-mcp 设计文档
 
 ## 概述
-MCP server，基于 OpenAI Codex app-server JSON-RPC 协议，通过 4 个 MCP 工具暴露 Codex agent 的完整能力。
+MCP server，基于 OpenAI Codex app-server JSON-RPC 协议，通过 4 个 MCP 工具和 3 个静态只读 Resources 暴露 Codex agent 能力。
 
 ## 系统架构
 
@@ -96,7 +96,7 @@ advanced 参数（低频）：
 ├── effort?: string         # 可覆盖后续轮次的推理力度
 ├── summary?: string        # 可覆盖后续轮次的推理摘要
 ├── personality?: string    # 可覆盖后续轮次的人格
-├── sandboxPolicy?: enum    # 可覆盖后续轮次的沙箱策略（映射为 SandboxPolicy 对象：read-only → { type: "readOnly" }, workspace-write → { type: "workspaceWrite" }, danger-full-access → { type: "dangerFullAccess" }）
+├── sandbox?: enum          # 可覆盖后续轮次的沙箱策略：read-only | workspace-write | danger-full-access（内部映射为 SandboxPolicy 对象）
 ├── cwd?: string            # 可覆盖后续轮次的工作目录
 └── outputSchema?: object   # 本轮结构化输出
 ```
@@ -172,6 +172,20 @@ advanced 参数（低频）：
   "result": null
 }
 ```
+
+### 静态 Resources（非工具）
+
+本项目额外暴露 3 个静态只读 MCP Resources，用于元数据和使用指导，不参与 agent 生命周期控制：
+
+- `codex-mcp:///server-info`（`application/json`）：服务端版本/运行时/平台信息
+- `codex-mcp:///config`（`text/markdown`）：参数与 `codex app-server -c` 配置映射说明
+- `codex-mcp:///gotchas`（`text/markdown`）：轮询、cursor、审批超时等常见注意事项
+
+约束：
+
+- 仍保持 4 个 MCP tools，不新增额外工具
+- 不暴露 prompts
+- resources 内容为静态文档/元信息，不返回环境变量等敏感信息
 
 ## 会话生命周期
 

@@ -32,6 +32,8 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "prepublishOnly": "npm run build",
+    "check:stdio": "node scripts/check-stdio.mjs",
+    "smoke:mcp": "node scripts/mcp-smoke.mjs",
     "lint": "eslint src/ tests/",
     "format": "prettier --write \"src/**/*.ts\" \"tests/**/*.ts\"",
     "format:check": "prettier --check \"src/**/*.ts\" \"tests/**/*.ts\""

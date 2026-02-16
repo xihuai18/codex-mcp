@@ -116,6 +116,37 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(manager.pollEvents(sessionId).actions).toBeUndefined();
   });
 
+  it("responds to user input request and clears pending request", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(12, Methods.USER_INPUT_REQUEST, {
+      itemId: "item_ui_1",
+      threadId,
+      turnId: "turn_1",
+      questions: [{ questionId: "q1", question: "Pick one" }],
+    });
+
+    const poll1 = manager.pollEvents(sessionId);
+    expect(poll1.status).toBe("waiting_approval");
+    expect(poll1.actions?.length).toBe(1);
+    expect(poll1.actions?.[0]?.type).toBe("user_input");
+
+    const requestId = poll1.actions![0].requestId;
+    const answers = { q1: { answers: ["A"] } };
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_user_input",
+        sessionId,
+        requestId,
+        answers,
+      },
+      manager
+    );
+
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    expect(client.respondToServer).toHaveBeenCalledWith(12, { answers });
+    expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
+  });
+
   it("rejects invalid decision for fileChange approval via tool wrapper", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(2, Methods.FILE_CHANGE_APPROVAL, {
@@ -197,6 +228,42 @@ describe("SessionManager protocol compatibility + approvals", () => {
     }
   });
 
+  it("auto-answers user input with empty answers on timeout", async () => {
+    vi.useFakeTimers();
+    try {
+      const { sessionId, threadId } = await manager.createSession(
+        "hi",
+        workspace,
+        {},
+        "medium",
+        { approvalTimeoutMs: 5 }
+      );
+      client.emitServerRequest(13, Methods.USER_INPUT_REQUEST, {
+        itemId: "item_ui_timeout_1",
+        threadId,
+        turnId: "turn_1",
+        questions: [{ questionId: "q1", question: "Pick one" }],
+      });
+
+      expect(manager.pollEvents(sessionId).actions?.length).toBe(1);
+      await vi.advanceTimersByTimeAsync(10);
+
+      expect(client.respondToServer).toHaveBeenCalledWith(13, { answers: {} });
+      const poll = manager.pollEvents(sessionId, 0, 200);
+      expect(
+        poll.events.some(
+          (event) =>
+            event.type === "approval_result" &&
+            (event.data as { timeout?: boolean; kind?: string }).timeout === true &&
+            (event.data as { timeout?: boolean; kind?: string }).kind === "user_input"
+        )
+      ).toBe(true);
+      expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("sets cursorResetTo when buffer has evicted earlier events", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     for (let i = 0; i < 1105; i++) {
@@ -249,6 +316,9 @@ describe("SessionManager protocol compatibility + approvals", () => {
     const poll = manager.pollEvents(sessionId);
     expect(poll.status).toBe("error");
     expect(poll.actions).toBeUndefined();
+    expect(poll.result?.status).toBe("error");
+    expect(poll.result?.error).toContain("app-server exited unexpectedly");
+    expect(poll.events.some((event) => event.type === "result")).toBe(true);
     expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
   });
 
@@ -318,5 +388,50 @@ describe("SessionManager protocol compatibility + approvals", () => {
       threadId,
       turnId: "turn_mock",
     });
+  });
+
+  it("persists reply overrides to session metadata", async () => {
+    const { sessionId, threadId } = await manager.createSession(
+      "hi",
+      workspace,
+      {
+        model: "o4-mini",
+        approvalPolicy: "on-request",
+        sandbox: "workspace-write",
+      },
+      "medium"
+    );
+
+    client.emitNotification(Methods.TURN_COMPLETED, {
+      threadId,
+      turnId: "turn_done",
+      turn: { status: "completed" },
+    });
+
+    await manager.replyToSession(sessionId, "next", {
+      model: "o4",
+      approvalPolicy: "never",
+      sandbox: "danger-full-access",
+      cwd: os.tmpdir(),
+    });
+
+    const info = manager.getSession(sessionId, true) as {
+      model?: string;
+      approvalPolicy?: string;
+      sandbox?: string;
+      cwd: string;
+    };
+    expect(info.model).toBe("o4");
+    expect(info.approvalPolicy).toBe("never");
+    expect(info.sandbox).toBe("danger-full-access");
+    expect(info.cwd).toBe(os.tmpdir());
+    expect(client.turnStart).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        model: "o4",
+        approvalPolicy: "never",
+        cwd: os.tmpdir(),
+        sandboxPolicy: { type: "dangerFullAccess" },
+      })
+    );
   });
 });

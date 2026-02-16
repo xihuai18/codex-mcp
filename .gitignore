@@ -36,3 +36,5 @@ Thumbs.db
 codex-app-server.schema.json
 server-notifications.json
 server-notifications.min.json
+server-notifications.*.json
+codex-schema/

@@ -11,11 +11,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `approvalPolicy`, `sandbox`, and `effort` are now **required** parameters in the `codex` tool — callers must explicitly set based on their own permission level and task complexity
 - `effort` parameter promoted from `advanced.effort` to top-level parameter in the `codex` tool
+- `codex_reply` parameter `sandboxPolicy` renamed to `sandbox`
 
 ### Changed
 
 - All MCP-visible text (tool descriptions, parameter descriptions, resource descriptions) streamlined for conciseness
 - `effort` description now suggests adjusting based on task complexity
+- `replyToSession` now persists successful `model` / `approvalPolicy` / `sandbox` / `cwd` overrides to session metadata
+- Process `exit` / `error` paths now emit terminal `result` payloads so `codex_check(action=\"poll\")` always includes a terminal `result` in error states
 
 ## [0.1.0] - 2026-02-15
 

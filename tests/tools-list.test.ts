@@ -27,9 +27,15 @@ describe("tools/list metadata", () => {
         const outputSchema = tool!.outputSchema as Record<string, unknown>;
         expect(outputSchema).toHaveProperty("type", "object");
       }
+
+      const codexReply = byName.get("codex_reply") as {
+        inputSchema?: { properties?: Record<string, unknown> };
+      };
+      const codexReplyProps = codexReply.inputSchema?.properties ?? {};
+      expect(codexReplyProps).toHaveProperty("sandbox");
+      expect(codexReplyProps).not.toHaveProperty("sandboxPolicy");
     } finally {
       await server.close();
     }
   });
 });
-

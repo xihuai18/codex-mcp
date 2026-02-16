@@ -14,6 +14,7 @@ MCP server that wraps [OpenAI Codex](https://github.com/openai/codex) `app-serve
 - **Zero config** — inherits your local `~/.codex/config.toml` automatically
 - **Session management** — list, inspect, cancel, interrupt, fork sessions
 - **Event streaming** — cursor-based pagination with pin-protected event buffer
+- **Static read-only resources** — `codex-mcp:///server-info`, `codex-mcp:///config`, `codex-mcp:///gotchas`
 
 ## Prerequisites
 
@@ -132,7 +133,7 @@ Send a follow-up message to an existing session.
 | `effort`         | string | No       | Override reasoning effort (`none`, `minimal`, `low`, `medium`, `high`, `xhigh`) |
 | `summary`        | string | No       | Override reasoning summary (`auto`, `concise`, `detailed`, `none`)              |
 | `personality`    | string | No       | Override personality (`none`, `friendly`, `pragmatic`)                          |
-| `sandboxPolicy`  | string | No       | Override sandbox (mapped to protocol `SandboxPolicy`)                           |
+| `sandbox`        | string | No       | Override sandbox (`read-only`, `workspace-write`, `danger-full-access`)         |
 | `cwd`            | string | No       | Override working directory                                                      |
 | `outputSchema`   | object | No       | JSON Schema for structured output                                               |
 
@@ -292,6 +293,8 @@ npm run build
 npm run typecheck
 npm test
 ```
+
+End-to-end local test plan (after installing/configuring in an MCP client): `docs/e2e-local-test-plan.zh-CN.md`
 
 ## Project Policies
 

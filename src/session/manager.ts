@@ -20,8 +20,10 @@ import {
   toSandboxPolicy,
 } from "../app-server/protocol.js";
 import {
+  type ApprovalPolicy,
   type SessionInfo,
   type SessionStatus,
+  type SandboxMode,
   type PublicSessionInfo,
   type SensitiveSessionInfo,
   type SessionEventType,
@@ -185,7 +187,7 @@ export class SessionManager {
       effort?: string;
       summary?: string;
       personality?: string;
-      sandboxPolicy?: string;
+      sandbox?: string;
       cwd?: string;
       outputSchema?: Record<string, unknown>;
     }
@@ -218,9 +220,6 @@ export class SessionManager {
     const input: UserInput[] = [{ type: "text", text: prompt }];
 
     const resolvedCwd = overrides?.cwd ? resolveAndValidateCwd(overrides.cwd, session.cwd) : undefined;
-    if (resolvedCwd) {
-      session.cwd = resolvedCwd;
-    }
 
     const turnParams: TurnStartParams = {
       threadId: session.threadId,
@@ -234,15 +233,23 @@ export class SessionManager {
       outputSchema: overrides?.outputSchema,
     };
 
-    // Map sandboxPolicy string to protocol object
-    if (overrides?.sandboxPolicy) {
-      turnParams.sandboxPolicy = toSandboxPolicy(overrides.sandboxPolicy);
+    // Map sandbox string to protocol object
+    if (overrides?.sandbox) {
+      turnParams.sandboxPolicy = toSandboxPolicy(overrides.sandbox);
     }
 
     try {
       const turnStartResult = await client.turnStart(turnParams);
       const startedTurnId = extractTurnId(turnStartResult);
       if (startedTurnId) session.activeTurnId = startedTurnId;
+      if (resolvedCwd) session.cwd = resolvedCwd;
+      if (overrides?.model) session.model = overrides.model;
+      if (overrides?.approvalPolicy) {
+        session.approvalPolicy = overrides.approvalPolicy as ApprovalPolicy;
+      }
+      if (overrides?.sandbox) {
+        session.sandbox = overrides.sandbox as SandboxMode;
+      }
     } catch (err) {
       session.status = "error";
       pushEvent(session.eventBuffer, "error", {
@@ -938,11 +945,13 @@ export class SessionManager {
       clearSessionPendingRequests(session);
       if (session.status === "running" || session.status === "waiting_approval") {
         session.status = "error";
+        const message = `app-server exited unexpectedly (code: ${code})`;
+        setTerminalErrorResult(session, message);
         pushEvent(
           session.eventBuffer,
           "error",
           {
-            message: `app-server exited unexpectedly (code: ${code})`,
+            message,
           },
           true
         );
@@ -954,11 +963,13 @@ export class SessionManager {
       clearSessionPendingRequests(session);
       if (session.status === "running" || session.status === "waiting_approval") {
         session.status = "error";
+        const message = redactPaths(`app-server error: ${err.message}`);
+        setTerminalErrorResult(session, message);
         pushEvent(
           session.eventBuffer,
           "error",
           {
-            message: redactPaths(`app-server error: ${err.message}`),
+            message,
           },
           true
         );
@@ -1027,6 +1038,29 @@ function clearSessionPendingRequests(session: SessionInfo): void {
     if (req.timeoutHandle) clearTimeout(req.timeoutHandle);
     req.resolved = true;
   }
+}
+
+function setTerminalErrorResult(session: SessionInfo, message: string): void {
+  const completedAt = new Date().toISOString();
+  const failedTurnId = session.activeTurnId ?? "";
+  session.activeTurnId = undefined;
+  session.lastResult = {
+    turnId: failedTurnId,
+    status: "error",
+    error: message,
+    completedAt,
+  };
+  pushEvent(
+    session.eventBuffer,
+    "result",
+    {
+      status: "error",
+      turnId: failedTurnId,
+      error: message,
+      completedAt,
+    },
+    true
+  );
 }
 
 function pushEvent(buf: EventBuffer, type: SessionEventType, data: unknown, pinned = false): void {
