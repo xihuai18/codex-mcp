@@ -30,4 +30,3 @@ export function resolveAndValidateCwd(inputCwd: string | undefined, baseCwd: str
 
   return resolved;
 }
-

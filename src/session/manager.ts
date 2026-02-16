@@ -220,7 +220,9 @@ export class SessionManager {
 
     const input: UserInput[] = [{ type: "text", text: prompt }];
 
-    const resolvedCwd = overrides?.cwd ? resolveAndValidateCwd(overrides.cwd, session.cwd) : undefined;
+    const resolvedCwd = overrides?.cwd
+      ? resolveAndValidateCwd(overrides.cwd, session.cwd)
+      : undefined;
 
     const turnParams: TurnStartParams = {
       threadId: session.threadId,

@@ -79,7 +79,7 @@ describe("AppServerClient spawn behavior", () => {
     const [cmd, args, spawnOpts] = spawnMock.mock.calls[0] as [
       string,
       string[],
-      { detached?: boolean; windowsHide?: boolean }
+      { detached?: boolean; windowsHide?: boolean },
     ];
 
     if (process.platform === "win32") {

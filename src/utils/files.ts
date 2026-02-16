@@ -30,4 +30,3 @@ export function resolveAndValidateFilePath(
 
   return resolved;
 }
-

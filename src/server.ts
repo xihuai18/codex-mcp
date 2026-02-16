@@ -90,7 +90,9 @@ export function createServer(serverCwd: string): McpServer {
         approvalPolicy: z
           .enum(APPROVAL_POLICIES)
           .describe("Command approval policy — set based on caller's permission level"),
-        sandbox: z.enum(SANDBOX_MODES).describe("Sandbox mode — set based on caller's permission level"),
+        sandbox: z
+          .enum(SANDBOX_MODES)
+          .describe("Sandbox mode — set based on caller's permission level"),
         effort: z
           .enum(EFFORT_LEVELS)
           .describe("Reasoning effort: low/medium for simple tasks, high/xhigh for complex ones"),
@@ -100,10 +102,22 @@ export function createServer(serverCwd: string): McpServer {
         advanced: z
           .object({
             baseInstructions: z.string().optional().describe("Replace default system instructions"),
-            developerInstructions: z.string().optional().describe("Additional developer instructions"),
-            personality: z.enum(PERSONALITIES).optional().describe("Personality (default: config.toml)"),
-            summary: z.enum(SUMMARY_MODES).optional().describe("Summary mode (default: config.toml)"),
-            config: z.record(z.string(), z.unknown()).optional().describe("Override config.toml values"),
+            developerInstructions: z
+              .string()
+              .optional()
+              .describe("Additional developer instructions"),
+            personality: z
+              .enum(PERSONALITIES)
+              .optional()
+              .describe("Personality (default: config.toml)"),
+            summary: z
+              .enum(SUMMARY_MODES)
+              .optional()
+              .describe("Summary mode (default: config.toml)"),
+            config: z
+              .record(z.string(), z.unknown())
+              .optional()
+              .describe("Override config.toml values"),
             ephemeral: z.boolean().optional().describe("Don't persist thread (default: false)"),
             outputSchema: z
               .record(z.string(), z.unknown())
@@ -306,7 +320,10 @@ respond_user_input: Answer input request. Pass requestId + answers.`,
           .describe(
             "Approval decision: accept / acceptForSession / acceptWithExecpolicyAmendment / decline / cancel"
           ),
-        execpolicyAmendment: z.array(z.string()).optional().describe("For acceptWithExecpolicyAmendment only"),
+        execpolicyAmendment: z
+          .array(z.string())
+          .optional()
+          .describe("For acceptWithExecpolicyAmendment only"),
         denyMessage: z.string().optional().describe("Deny reason (not sent to agent)"),
         // respond_user_input
         answers: z
@@ -327,7 +344,14 @@ respond_user_input: Answer input request. Pass requestId + answers.`,
           .array(
             z.object({
               id: z.number().int(),
-              type: z.enum(["output", "progress", "approval_request", "approval_result", "result", "error"]),
+              type: z.enum([
+                "output",
+                "progress",
+                "approval_request",
+                "approval_result",
+                "result",
+                "error",
+              ]),
               data: z.unknown(),
               timestamp: z.string(),
             })

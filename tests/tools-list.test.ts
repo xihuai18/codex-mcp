@@ -6,7 +6,9 @@ describe("tools/list metadata", () => {
     const server = createServer(process.cwd());
     try {
       const internal = server as unknown as {
-        server: { _requestHandlers: Map<string, (req: unknown, extra: unknown) => Promise<unknown>> };
+        server: {
+          _requestHandlers: Map<string, (req: unknown, extra: unknown) => Promise<unknown>>;
+        };
       };
       const handler = internal.server._requestHandlers.get("tools/list");
       expect(handler).toBeTypeOf("function");

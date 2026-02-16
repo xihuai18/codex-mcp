@@ -203,13 +203,9 @@ describe("SessionManager protocol compatibility + approvals", () => {
   it("auto-declines approvals after approvalTimeoutMs and clears pending", async () => {
     vi.useFakeTimers();
     try {
-      const { sessionId, threadId } = await manager.createSession(
-        "hi",
-        workspace,
-        {},
-        "medium",
-        { approvalTimeoutMs: 5 }
-      );
+      const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium", {
+        approvalTimeoutMs: 5,
+      });
       client.emitServerRequest(11, Methods.COMMAND_APPROVAL, {
         itemId: "item_timeout_1",
         threadId,
@@ -231,13 +227,9 @@ describe("SessionManager protocol compatibility + approvals", () => {
   it("auto-answers user input with empty answers on timeout", async () => {
     vi.useFakeTimers();
     try {
-      const { sessionId, threadId } = await manager.createSession(
-        "hi",
-        workspace,
-        {},
-        "medium",
-        { approvalTimeoutMs: 5 }
-      );
+      const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium", {
+        approvalTimeoutMs: 5,
+      });
       client.emitServerRequest(13, Methods.USER_INPUT_REQUEST, {
         itemId: "item_ui_timeout_1",
         threadId,
@@ -379,13 +371,14 @@ describe("SessionManager protocol compatibility + approvals", () => {
   it("unrefs approval timeout timers so they do not block process exit", async () => {
     const unrefSpy = vi.fn();
     const timeoutHandle = { unref: unrefSpy } as unknown as ReturnType<typeof setTimeout>;
-    const setTimeoutSpy = vi
-      .spyOn(globalThis, "setTimeout")
-      .mockImplementation(((handler: TimerHandler, timeout?: number) => {
-        void handler;
-        void timeout;
-        return timeoutHandle;
-      }) as typeof setTimeout);
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout").mockImplementation(((
+      handler: TimerHandler,
+      timeout?: number
+    ) => {
+      void handler;
+      void timeout;
+      return timeoutHandle;
+    }) as typeof setTimeout);
 
     try {
       const { threadId } = await manager.createSession("hi", workspace, {}, "medium", {

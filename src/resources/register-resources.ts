@@ -112,7 +112,7 @@ export function registerResources(
       asTextResource(
         gotchasUri,
         [
-          "- Sessions are async — poll `codex_check(action=\"poll\")` until status is `idle`/`error`/`cancelled`.",
+          '- Sessions are async — poll `codex_check(action="poll")` until status is `idle`/`error`/`cancelled`.',
           "- Store `nextCursor` and pass it back to avoid replaying events.",
           "- If `cursorResetTo` is present, cursor was stale; restart from `cursorResetTo`.",
           "- Approvals auto-decline after `approvalTimeoutMs`. Respond to `actions[]` promptly.",

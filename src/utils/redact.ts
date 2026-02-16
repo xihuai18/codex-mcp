@@ -11,4 +11,3 @@ export function redactPaths(message: string): string {
     .replace(windowsPath, "<path>")
     .replace(posixPath, (_m, prefix: string) => `${prefix}<path>`);
 }
-

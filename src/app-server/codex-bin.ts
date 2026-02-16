@@ -21,7 +21,10 @@ type ResolverDeps = {
   readFile?: (p: string) => string;
 };
 
-export function resolveCodexInvocation(codexArgs: string[], deps: ResolverDeps = {}): CodexInvocation {
+export function resolveCodexInvocation(
+  codexArgs: string[],
+  deps: ResolverDeps = {}
+): CodexInvocation {
   const platform = deps.platform ?? process.platform;
   const env = deps.env ?? process.env;
   const exists = deps.exists ?? existsSync;
