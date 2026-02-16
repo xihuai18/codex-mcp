@@ -147,6 +147,38 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
   });
 
+  it("normalizes null and non-string approval reason to undefined", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    client.emitServerRequest(20, Methods.COMMAND_APPROVAL, {
+      itemId: "item_cmd_null_reason",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+      reason: null,
+    });
+    client.emitServerRequest(21, Methods.FILE_CHANGE_APPROVAL, {
+      itemId: "item_fc_invalid_reason",
+      threadId,
+      turnId: "turn_1",
+      reason: 123,
+    });
+
+    const poll = manager.pollEvents(sessionId, 0, 50);
+    expect(poll.status).toBe("waiting_approval");
+    expect(poll.actions?.length).toBe(2);
+    expect(poll.actions?.every((action) => action.reason === undefined)).toBe(true);
+
+    const approvalEvents = poll.events.filter((event) => event.type === "approval_request");
+    expect(approvalEvents.length).toBe(2);
+    expect(
+      approvalEvents.every(
+        (event) => (event.data as { reason?: string | null }).reason === undefined
+      )
+    ).toBe(true);
+  });
+
   it("rejects invalid decision for fileChange approval via tool wrapper", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(2, Methods.FILE_CHANGE_APPROVAL, {

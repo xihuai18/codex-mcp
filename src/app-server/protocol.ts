@@ -163,7 +163,7 @@ export interface CommandApprovalParams {
   turnId: string;
   command?: string | null;
   cwd?: string;
-  reason?: string;
+  reason?: string | null;
   commandActions?: unknown[] | null;
   proposedExecpolicyAmendment?: string[] | null;
 }
@@ -184,7 +184,7 @@ export interface FileChangeApprovalParams {
   threadId: string;
   turnId: string;
   grantRoot?: string | null;
-  reason?: string;
+  reason?: string | null;
 }
 
 export type FileChangeApprovalDecision = "accept" | "acceptForSession" | "decline" | "cancel";

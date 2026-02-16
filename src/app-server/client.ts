@@ -33,6 +33,7 @@ declare const __PKG_VERSION__: string;
 const CLIENT_VERSION = typeof __PKG_VERSION__ !== "undefined" ? __PKG_VERSION__ : "0.0.0-dev";
 
 const DEFAULT_REQUEST_TIMEOUT = 30_000;
+const STARTUP_REQUEST_TIMEOUT = 90_000;
 const MAX_WRITE_QUEUE_BYTES = 5 * 1024 * 1024; // 5MB
 
 interface PendingRpcRequest {
@@ -159,8 +160,11 @@ export class AppServerClient extends EventEmitter {
 
   // ── High-level protocol methods ────────────────────────────────
 
-  async threadStart(params: ThreadStartParams): Promise<ThreadStartResult> {
-    return this.request<ThreadStartResult>(Methods.THREAD_START, params);
+  async threadStart(
+    params: ThreadStartParams,
+    timeout = STARTUP_REQUEST_TIMEOUT
+  ): Promise<ThreadStartResult> {
+    return this.request<ThreadStartResult>(Methods.THREAD_START, params, timeout);
   }
 
   async threadFork(params: ThreadForkParams): Promise<ThreadForkResult> {
@@ -171,8 +175,11 @@ export class AppServerClient extends EventEmitter {
     return this.request<ThreadResumeResult>(Methods.THREAD_RESUME, params);
   }
 
-  async turnStart(params: TurnStartParams): Promise<TurnStartResult> {
-    return this.request<TurnStartResult>(Methods.TURN_START, params);
+  async turnStart(
+    params: TurnStartParams,
+    timeout = STARTUP_REQUEST_TIMEOUT
+  ): Promise<TurnStartResult> {
+    return this.request<TurnStartResult>(Methods.TURN_START, params, timeout);
   }
 
   async turnInterrupt(params: TurnInterruptParams): Promise<void> {

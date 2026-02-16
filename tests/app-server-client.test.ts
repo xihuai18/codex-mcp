@@ -1,6 +1,7 @@
 import { EventEmitter } from "events";
 import { PassThrough } from "stream";
 import { afterEach, describe, expect, it, vi } from "vitest";
+import { Methods } from "../src/app-server/protocol.js";
 
 const spawnMock = vi.fn();
 
@@ -98,5 +99,40 @@ describe("AppServerClient spawn behavior", () => {
       expect(args[0]).toBe("app-server");
       expect(spawnOpts?.detached).toBe(true);
     }
+  });
+
+  it("uses extended timeout for startup RPCs", async () => {
+    const mod = await import("../src/app-server/client.js");
+    const client = new mod.AppServerClient();
+
+    const requestSpy = vi.fn(async () => ({}));
+    (
+      client as unknown as {
+        request: (method: string, params?: unknown, timeout?: number) => Promise<unknown>;
+      }
+    ).request = requestSpy;
+
+    await client.threadStart({ cwd: "D:\\Lab\\repo" });
+    await client.turnStart({ threadId: "thread_1", input: [{ type: "text", text: "hi" }] });
+    await client.threadStart({ cwd: "D:\\Lab\\repo" }, 45_000);
+
+    expect(requestSpy).toHaveBeenNthCalledWith(
+      1,
+      Methods.THREAD_START,
+      { cwd: "D:\\Lab\\repo" },
+      90000
+    );
+    expect(requestSpy).toHaveBeenNthCalledWith(
+      2,
+      Methods.TURN_START,
+      { threadId: "thread_1", input: [{ type: "text", text: "hi" }] },
+      90000
+    );
+    expect(requestSpy).toHaveBeenNthCalledWith(
+      3,
+      Methods.THREAD_START,
+      { cwd: "D:\\Lab\\repo" },
+      45000
+    );
   });
 });

@@ -778,6 +778,7 @@ export class SessionManager {
       switch (method) {
         case Methods.COMMAND_APPROVAL: {
           const requestId = `req_${randomUUID().slice(0, 8)}`;
+          const reason = normalizeOptionalString(p.reason);
           const pending: PendingRequest = {
             requestId,
             kind: "command",
@@ -785,7 +786,7 @@ export class SessionManager {
             itemId: p.itemId as string,
             threadId: p.threadId as string,
             turnId: p.turnId as string,
-            reason: p.reason as string | undefined,
+            reason,
             createdAt: new Date().toISOString(),
             resolved: false,
             respond: (result) => client.respondToServer(id, result),
@@ -829,7 +830,7 @@ export class SessionManager {
               kind: "command",
               command: p.command,
               cwd: p.cwd,
-              reason: p.reason,
+              reason,
             },
             true
           );
@@ -838,6 +839,7 @@ export class SessionManager {
 
         case Methods.FILE_CHANGE_APPROVAL: {
           const requestId = `req_${randomUUID().slice(0, 8)}`;
+          const reason = normalizeOptionalString(p.reason);
           const pending: PendingRequest = {
             requestId,
             kind: "fileChange",
@@ -845,7 +847,7 @@ export class SessionManager {
             itemId: p.itemId as string,
             threadId: p.threadId as string,
             turnId: p.turnId as string,
-            reason: p.reason as string | undefined,
+            reason,
             createdAt: new Date().toISOString(),
             resolved: false,
             respond: (result) => client.respondToServer(id, result),
@@ -887,7 +889,7 @@ export class SessionManager {
               requestId,
               kind: "fileChange",
               itemId: p.itemId,
-              reason: p.reason,
+              reason,
             },
             true
           );
@@ -1138,6 +1140,10 @@ function respondToTerminalSessionRequest(
       client.respondErrorToServer(id, -32601, `Unhandled server request: ${method}`);
       break;
   }
+}
+
+function normalizeOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }
 
 function pushEvent(buf: EventBuffer, type: SessionEventType, data: unknown, pinned = false): void {

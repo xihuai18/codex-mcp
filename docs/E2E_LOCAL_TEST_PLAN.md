@@ -48,7 +48,7 @@ Recommended:
 
 1. Ensure server stdout is clean (no banner/noise on stdout).
 2. Keep server logs on stderr only.
-3. Validate model/auth availability with a lightweight read-only `codex` session before approval-heavy tests.
+3. Validate model/auth availability with a lightweight `codex` session before approval-heavy tests (recommended pair: `approvalPolicy=on-request`, `sandbox=read-only`).
 
 ## 2.1 Start codex-mcp (Required Before TC0)
 
@@ -217,6 +217,7 @@ Important:
 
 1. Put an expanded absolute path in MCP JSON payloads.
 2. Do not pass shell variables like `$HOME` literally as `cwd`.
+3. On Windows (including MINGW/Git Bash clients), pass Windows-style paths in MCP payloads (for example `D:\\Lab\\...`), not `/d/Lab/...`.
 
 ## 5. Protocol Ground Rules You Must Follow
 
@@ -247,6 +248,8 @@ Observed default polling cadence in implementation:
 
 1. `running`: around 3000ms
 2. `waiting_approval`: around 1000ms
+3. During long reasoning phases, no new events for 30-60+ seconds can still be normal. Keep polling with patience instead of treating silence as failure.
+4. If your client supports adaptive backoff, increase interval when no events arrive, then reset when new events appear.
 
 ## 5.3 Approval Rules
 
@@ -290,14 +293,14 @@ Pass criteria:
 2. 3 resources present and readable.
 3. No transport-level JSON-RPC corruption.
 
-## TC1: Async Start + Poll (No Approval Path)
+## TC1: Async Start + Poll (Read-Only Path)
 
 Tool call (`codex`) suggested payload:
 
 ```json
 {
-  "prompt": "Read this workspace and summarize structure only. Do not run commands. Do not edit files.",
-  "approvalPolicy": "never",
+  "prompt": "Read this workspace and summarize its structure. You may run read-only inspection commands only. Do not edit files.",
+  "approvalPolicy": "on-request",
   "sandbox": "read-only",
   "effort": "low",
   "cwd": "<REPRO_CWD>"
@@ -319,6 +322,7 @@ Pass criteria:
 1. Start call returns quickly with `sessionId`.
 2. Poll returns incremental events and increasing cursor.
 3. Final status reaches `idle` (or `error` with explicit reason).
+4. If `actions[]` appears, respond and verify session can return from `waiting_approval` to `running`.
 
 ## TC2: Approval Flow (Command + File Change)
 
@@ -415,8 +419,8 @@ Schema example:
 ```json
 {
   "prompt": "Summarize what changed and output structured fields.",
-  "approvalPolicy": "never",
-  "sandbox": "read-only",
+  "approvalPolicy": "on-request",
+  "sandbox": "workspace-write",
   "effort": "low",
   "cwd": "<REPRO_CWD>",
   "advanced": {
@@ -535,7 +539,8 @@ Likely cause:
 Fix:
 
 1. Re-run with explicit policy pair:
-   - safest read path: `never + read-only`
+   - safe read path with controllable approvals: `on-request + read-only`
+   - pure dialogue path (no workspace commands expected): `never + read-only`
    - strict review path: `untrusted + workspace-write`
 
 ## 9. Test Report Template (Use This in Final Report)
@@ -591,10 +596,11 @@ This appendix is optional and does not replace the generic flow above.
 
 1. In Claude Code MCP settings, prefer launch commands that avoid shell stdout noise.
 2. On Windows, if command resolution needs it, use `npx.cmd` instead of `npx`.
-3. Recommended order:
+3. In MCP payloads, keep `cwd` as Windows path format (for example `D:\\Lab\\repo`) even if your shell prompt is `/d/Lab/repo`.
+4. Recommended order:
    - validate stdout cleanliness
    - validate tools/resources
    - then run TC1 -> TC5 in order
-4. If Claude UI shows mostly `content[0].text`, parse JSON text and cross-check `structuredContent` when available.
+5. If Claude UI shows mostly `content[0].text`, parse JSON text and cross-check `structuredContent` when available.
 
 End of document.
