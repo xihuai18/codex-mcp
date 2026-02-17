@@ -327,6 +327,38 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(resumed.events[0]?.id).toBe(2);
   });
 
+  it("clamps nextCursor when poll receives a future explicit cursor", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_future_cursor",
+      delta: "A",
+    });
+
+    const future = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 999999,
+        maxEvents: 1,
+      },
+      manager
+    ) as { events: Array<{ id: number }>; nextCursor: number };
+    expect(future.events).toEqual([]);
+    expect(future.nextCursor).toBe(1);
+
+    const resumed = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        maxEvents: 1,
+      },
+      manager
+    ) as { events: Array<{ id: number }> };
+    expect(resumed.events).toEqual([]);
+  });
+
   it("responds to command approval and clears pending request", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(1, Methods.COMMAND_APPROVAL, {
@@ -369,6 +401,51 @@ describe("SessionManager protocol compatibility + approvals", () => {
       turnId: "turn_1",
       command: "echo hi",
       cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    client.respondToServer.mockImplementationOnce(() => {
+      throw new Error("write queue dropped");
+    });
+    const failed = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+      },
+      manager
+    ) as { isError?: boolean; error?: string };
+    expect(failed.isError).toBe(true);
+    expect(failed.error).toContain("INTERNAL");
+
+    const stillPending = manager.pollEvents(sessionId);
+    expect(stillPending.status).toBe("waiting_approval");
+    expect(stillPending.actions?.some((action) => action.requestId === requestId)).toBe(true);
+
+    const retry = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+      },
+      manager
+    );
+    expect((retry as { isError?: boolean }).isError).not.toBe(true);
+    expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
+  });
+
+  it("returns INTERNAL and keeps fileChange approval pending when forwarding response fails", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(104, Methods.FILE_CHANGE_APPROVAL, {
+      itemId: "item_forward_fail_file",
+      threadId,
+      turnId: "turn_1",
+      reason: "confirm write",
     });
 
     const poll1 = manager.pollEvents(sessionId);
@@ -1024,6 +1101,62 @@ describe("SessionManager protocol compatibility + approvals", () => {
         sessionId,
         requestId: shaped.actions![0].requestId,
         decision: "accept",
+      },
+      manager
+    );
+    expect((ack as { isError?: boolean }).isError).not.toBe(true);
+  });
+
+  it("keeps user_input questionIds under maxBytes so clients can still answer", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(105, Methods.USER_INPUT_REQUEST, {
+      itemId: "item_compact_user_input",
+      threadId,
+      turnId: "turn_1",
+      questions: [
+        {
+          questionId: "q1",
+          question: "A".repeat(3000),
+        },
+      ],
+    });
+
+    const shaped = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+        pollOptions: {
+          includeEvents: false,
+          maxBytes: 700,
+        },
+      },
+      manager
+    ) as {
+      status: string;
+      actions?: Array<{
+        requestId: string;
+        kind: string;
+        params: { questions?: Array<{ questionId?: string }> } | undefined;
+      }>;
+      truncated?: boolean;
+      truncatedFields?: string[];
+    };
+
+    expect(shaped.status).toBe("waiting_approval");
+    expect(shaped.truncated).toBe(true);
+    expect(shaped.truncatedFields).toContain("actions");
+    expect(shaped.actions?.length).toBe(1);
+    expect(shaped.actions?.[0]?.kind).toBe("user_input");
+    expect(shaped.actions?.[0]?.params?.questions?.[0]?.questionId).toBe("q1");
+
+    const ack = executeCodexCheck(
+      {
+        action: "respond_user_input",
+        sessionId,
+        requestId: shaped.actions![0].requestId,
+        answers: { q1: { answers: ["A"] } },
       },
       manager
     );
