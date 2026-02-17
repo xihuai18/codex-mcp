@@ -46,7 +46,10 @@
     "openai",
     "agent",
     "coding-agent",
-    "model-context-protocol"
+    "model-context-protocol",
+    "stdio",
+    "json-rpc",
+    "approval-workflow"
   ],
   "author": "xihuai18",
   "license": "MIT",

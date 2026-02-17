@@ -229,7 +229,7 @@ When starting a session with `codex`, these are required:
 1. `prompt`
 2. `approvalPolicy`: `untrusted|on-failure|on-request|never`
 3. `sandbox`: `read-only|workspace-write|danger-full-access`
-4. `effort`: `none|minimal|low|medium|high|xhigh`
+4. `effort` is optional: `none|minimal|low|medium|high|xhigh` (default: `low`). For complex tasks, explicitly set `medium`/`high`/`xhigh`.
 
 For `codex_reply`, required:
 

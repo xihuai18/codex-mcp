@@ -42,14 +42,14 @@ Codex Agent (cloud)
 
 异步启动，立即返回 `{ sessionId, threadId, status: "running", pollInterval }`。
 
-**参数设计原则**：prompt、approvalPolicy、sandbox、effort 为必填参数（调用方必须根据自身权限和任务复杂度显式设置），其余高频参数保留在顶层，低频参数折叠到 advanced。
+**参数设计原则**：prompt、approvalPolicy、sandbox 为必填参数；effort 默认为 `low`（调用方应根据任务复杂度主动调整），其余高频参数保留在顶层，低频参数折叠到 advanced。
 
 ```
 顶层参数（高频）：
 ├── prompt: string          # 必填，任务描述
 ├── approvalPolicy: enum    # 必填，审批策略：untrusted | on-failure | on-request | never
 ├── sandbox: enum           # 必填，沙箱模式：read-only | workspace-write | danger-full-access
-├── effort: enum            # 必填，推理力度：none | minimal | low | medium | high | xhigh（根据任务复杂度调整）
+├── effort?: enum           # 默认 low；推理力度：none | minimal | low | medium | high | xhigh（应根据任务复杂度调整）
 ├── cwd?: string            # 工作目录，默认 server cwd
 ├── model?: string          # 模型，默认 config.toml
 └── profile?: string        # config.toml profile 名

@@ -30,19 +30,19 @@ This repository is a TypeScript (ESM) MCP server that wraps the OpenAI Codex `ap
 | `codex_session`  | 管理 session（list/get/cancel/interrupt/fork） | 同步                 |
 | `codex_check`    | 轮询事件 + 处理审批/用户输入请求（poll/respond_approval/respond_user_input） | 同步                 |
 
-不暴露额外的配置工具、不暴露内部工具代理、不暴露 resources/prompts。所有能力通过这 4 个工具的参数组合实现。
+不暴露额外的配置工具、不暴露内部工具代理、不暴露 prompts；保留 3 个静态只读 resources（`server-info`/`config`/`gotchas`）用于文档与元信息。核心能力仍通过这 4 个工具的参数组合实现。
 
 ### 3. 最少配置（Minimum Configuration）
 
-`codex` 的 `prompt`、`approvalPolicy`、`sandbox`、`effort` 为必填参数，调用方必须根据自身权限和任务复杂度显式设置。其余高频参数（`cwd`, `model`, `profile`）保留在顶层，低频参数折叠到 `advanced` 对象中：
+`codex` 的 `prompt`、`approvalPolicy`、`sandbox` 为必填参数；`effort` 默认为 `low`（但调用方应根据任务复杂度主动调整）。其余高频参数（`cwd`, `model`, `profile`）保留在顶层，低频参数折叠到 `advanced` 对象中：
 
 - **审批策略**：必填，调用方根据自身权限选择（`untrusted`, `on-failure`, `on-request`, `never`）
 - **沙箱模式**：必填，调用方根据自身权限选择（`read-only`, `workspace-write`, `danger-full-access`）
-- **推理力度**：必填，根据任务复杂度调整（`none` ~ `xhigh`）
+- **推理力度**：默认 `low`，建议根据任务复杂度调整（`none` ~ `xhigh`）
 - **工作目录**：默认为 server 进程的 cwd
 - **模型**：默认使用 config.toml 中配置的模型
 
-调用方至少需要 `{ prompt: "Fix the bug", approvalPolicy: "on-request", sandbox: "workspace-write", effort: "high" }` 才能启动 Codex agent。
+调用方至少需要 `{ prompt: "Fix the bug", approvalPolicy: "on-request", sandbox: "workspace-write" }` 才能启动 Codex agent。复杂任务建议显式传 `effort: "medium" | "high" | "xhigh"`。
 
 ### 4. 最大能力暴露（Maximum Capability）
 
@@ -125,10 +125,13 @@ src/
 │   └── codex-check.ts    # codex_check 工具（轮询 + 审批）
 └── utils/
     └── config.ts         # 配置辅助
-tests/                            # 尚未创建，计划结构如下
+tests/                            # 现有 Vitest 测试（持续扩展）
 ├── session-manager.test.ts
 ├── app-server-client.test.ts
-└── tools.test.ts
+├── codex.test.ts
+├── codex-session.test.ts
+├── lifecycle.test.ts
+└── ...
 ```
 
 ## Key Dependencies
@@ -171,7 +174,7 @@ tests/                            # 尚未创建，计划结构如下
 ## Security / Defaults
 
 - 保持"最少工具，最大能力"原则（不添加额外 MCP 工具，除非必要）
-- `approvalPolicy`、`sandbox`、`effort` 为必填参数，调用方必须根据自身权限和任务复杂度显式设置
+- `approvalPolicy`、`sandbox` 为必填参数；`effort` 默认为 `low`，但调用方应根据任务复杂度显式调整
 - 敏感信息（cwd, config）默认脱敏，使用 `includeSensitive=true` 查看完整信息
 - 环境变量不暴露在公开会话信息中
 

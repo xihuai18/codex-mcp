@@ -82,6 +82,101 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(threadId).toBeDefined();
   });
 
+  it("cleans up forked session resources when the new app-server fails to start", async () => {
+    const originalClient = new MockAppServerClient();
+    const forkClient = new MockAppServerClient();
+    forkClient.start = vi.fn(async () => {
+      throw new Error("start failed");
+    });
+
+    const queue = [originalClient, forkClient];
+    const forkManager = new SessionManager({
+      disableCleanup: true,
+      createClient: () => {
+        const next = queue.shift();
+        if (!next) throw new Error("No mock client available");
+        return next as unknown as AppServerClient;
+      },
+    });
+
+    try {
+      const started = await forkManager.createSession("hi", workspace, {}, "medium");
+      await expect(forkManager.forkSession(started.sessionId)).rejects.toThrow(
+        "THREAD_FORK_RESUME_FAILED"
+      );
+      expect(forkClient.destroy).toHaveBeenCalledTimes(1);
+      const sessions = forkManager.listSessions();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.sessionId).toBe(started.sessionId);
+    } finally {
+      forkManager.destroy();
+    }
+  });
+
+  it("cleans up forked session resources when threadResume fails", async () => {
+    const originalClient = new MockAppServerClient();
+    const forkClient = new MockAppServerClient();
+    forkClient.threadResume = vi.fn(async () => {
+      throw new Error("resume failed");
+    });
+
+    const queue = [originalClient, forkClient];
+    const forkManager = new SessionManager({
+      disableCleanup: true,
+      createClient: () => {
+        const next = queue.shift();
+        if (!next) throw new Error("No mock client available");
+        return next as unknown as AppServerClient;
+      },
+    });
+
+    try {
+      const started = await forkManager.createSession("hi", workspace, {}, "medium");
+      await expect(forkManager.forkSession(started.sessionId)).rejects.toThrow(
+        "THREAD_FORK_RESUME_FAILED"
+      );
+      expect(forkClient.destroy).toHaveBeenCalledTimes(1);
+      const sessions = forkManager.listSessions();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.sessionId).toBe(started.sessionId);
+    } finally {
+      forkManager.destroy();
+    }
+  });
+
+  it("still removes forked session bookkeeping when destroy fails after fork error", async () => {
+    const originalClient = new MockAppServerClient();
+    const forkClient = new MockAppServerClient();
+    forkClient.threadResume = vi.fn(async () => {
+      throw new Error("resume failed");
+    });
+    forkClient.destroy = vi.fn(async () => {
+      throw new Error("destroy failed");
+    });
+
+    const queue = [originalClient, forkClient];
+    const forkManager = new SessionManager({
+      disableCleanup: true,
+      createClient: () => {
+        const next = queue.shift();
+        if (!next) throw new Error("No mock client available");
+        return next as unknown as AppServerClient;
+      },
+    });
+
+    try {
+      const started = await forkManager.createSession("hi", workspace, {}, "medium");
+      await expect(forkManager.forkSession(started.sessionId)).rejects.toThrow(
+        "THREAD_FORK_RESUME_FAILED"
+      );
+      const sessions = forkManager.listSessions();
+      expect(sessions).toHaveLength(1);
+      expect(sessions[0]?.sessionId).toBe(started.sessionId);
+    } finally {
+      forkManager.destroy();
+    }
+  });
+
   it("defaults poll to one incremental event when maxEvents is omitted", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
 
@@ -583,6 +678,46 @@ describe("SessionManager protocol compatibility + approvals", () => {
     const poll = manager.pollEvents(sessionId, 0, 2000);
     expect(poll.cursorResetTo).toBe(105);
     expect(poll.events.length).toBe(1000);
+  });
+
+  it("prefers evicting approval_result before critical pinned events at hard limit", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    const internal = manager as unknown as {
+      sessions: Map<
+        string,
+        {
+          eventBuffer: { maxSize: number; hardMaxSize: number };
+        }
+      >;
+    };
+    const session = internal.sessions.get(sessionId);
+    expect(session).toBeDefined();
+    session!.eventBuffer.maxSize = 2;
+    session!.eventBuffer.hardMaxSize = 2;
+
+    client.emitServerRequest(21, Methods.COMMAND_APPROVAL, {
+      itemId: "item_hard_limit",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+    manager.resolveApproval(sessionId, requestId!, "accept");
+
+    client.emitNotification(Methods.TURN_COMPLETED, {
+      threadId,
+      turn: { id: "turn_1", status: "completed", output: "done" },
+    });
+
+    const poll2 = manager.pollEvents(sessionId, 0, 50);
+    const eventTypes = poll2.events.map((event) => event.type);
+    expect(eventTypes).toContain("approval_request");
+    expect(eventTypes).toContain("result");
+    expect(eventTypes).not.toContain("approval_result");
   });
 
   it("classifies item/completed based on item.type", async () => {

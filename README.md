@@ -1,7 +1,7 @@
 # codex-mcp
 
 [![npm version](https://img.shields.io/npm/v/@leo000001/codex-mcp.svg)](https://www.npmjs.com/package/@leo000001/codex-mcp)
-[![license](https://img.shields.io/npm/l/@leo000001/codex-mcp.svg)](https://github.com/xihuai18/codex-mcp/blob/main/LICENSE)
+[![license](https://img.shields.io/npm/l/@leo000001/codex-mcp.svg)](https://github.com/xihuai18/codex-mcp/blob/master/LICENSE)
 [![node](https://img.shields.io/node/v/@leo000001/codex-mcp.svg)](https://nodejs.org)
 
 MCP server that wraps [OpenAI Codex](https://github.com/openai/codex) `app-server` — start coding agents, poll their progress, and manage permissions from any MCP client.
@@ -100,7 +100,7 @@ Start a Codex agent session asynchronously. Returns immediately with `sessionId`
 | `prompt`         | string | Yes      | Task or question for the Codex agent                                                                                   |
 | `approvalPolicy` | string | Yes      | Approval policy: `untrusted`, `on-failure`, `on-request`, `never` — caller must set based on its own permission level  |
 | `sandbox`        | string | Yes      | Sandbox mode: `read-only`, `workspace-write`, `danger-full-access` — caller must set based on its own permission level |
-| `effort`         | string | Yes      | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh` — adjust based on task complexity                |
+| `effort`         | string | No       | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Default: `low`; increase/decrease based on task complexity |
 | `cwd`            | string | No       | Working directory. Default: server cwd                                                                                 |
 | `model`          | string | No       | Model override. Default: from `~/.codex/config.toml`                                                                   |
 | `profile`        | string | No       | `config.toml` profile name (passed as `codex app-server -p`)                                                           |
@@ -276,7 +276,7 @@ Common codes include `INVALID_ARGUMENT`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, `S
 
 ## Client compatibility notes
 
-- Tool responses follow `@modelcontextprotocol/sdk`'s `CallToolResult` contract: `content` (JSON text for wide compatibility), optional `structuredContent` (the canonical object), and `isError`. Claude Desktop and other clients tend to surface the `content` text directly, which shows the raw JSON blob, so they should fall back to `structuredContent` when they want typed data (Cursor already does this automatically whenever structured output is available).
+- Tool responses follow `@modelcontextprotocol/sdk`'s `CallToolResult` contract: `content` (JSON text for wide compatibility), optional `structuredContent` (the canonical object), and `isError`. `structuredContent` is always object-shaped; when a tool returns a scalar/array, codex-mcp wraps it as `{ "value": ... }`. Claude Desktop and other clients tend to surface the `content` text directly, which shows the raw JSON blob, so they should fall back to `structuredContent` when they want typed data (Cursor already does this automatically whenever structured output is available).
 - When an operation fails we set `isError: true` and return `Error [CODE]: message` in the `content` array instead of raising an MCP transport error. This keeps the STDIO channel healthy so Claude, Cursor, and other MCP clients stay connected even when a tool reports a problem.
 - `codex-mcp` uses the MCP stdio transport (`src/index.ts`), so stdout is reserved for newline-delimited JSON and all diagnostics go to stderr. Anything else on stdout—including shell/profile banners (e.g., PowerShell's oh-my-posh warning) or CLI wrappers that print prompts—will break the MCP handshake for Claude/Cursor. Run `pwsh -NoProfile`, disable profile banners, or wrap the command so stdout stays quiet before piping it into the client.
 - Windows command execution inside `codex app-server` may still inherit PowerShell profile side effects in some environments. This cannot be filtered by codex-mcp once emitted on stdout; if command turns are noisy or fail with profile errors, clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"` to reduce approval churn.

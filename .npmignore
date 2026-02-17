@@ -1,0 +1,14 @@
+src/
+tests/
+coverage/
+docs/
+scripts/
+codex-schema/
+.github/
+.vscode/
+node_modules/
+*.log
+tsconfig.json
+tsup.config.ts
+vitest.config.ts
+eslint.config.js

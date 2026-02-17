@@ -23,7 +23,7 @@ npm run format:check # Check formatting (Prettier)
 
 ## Pull Requests
 
-1. Fork the repo and create a branch from `main`
+1. Fork the repo and create a branch from `master` (or the repository default branch)
 2. Make your changes
 3. Ensure `npm run typecheck` and `npm run build` pass
 4. Submit a PR with a clear description

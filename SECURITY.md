@@ -7,7 +7,7 @@
 | 0.1.x   | Yes       |
 | < 0.1.0 | No        |
 
-Only the latest released minor line receives security fixes. Critical fixes are backported to supported patch versions in that line when feasible.
+Only the latest released minor line receives security fixes. Critical fixes are backported to the latest two patch releases in that supported minor line.
 
 ## Reporting a Vulnerability
 

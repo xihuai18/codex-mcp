@@ -135,4 +135,39 @@ describe("AppServerClient spawn behavior", () => {
       45000
     );
   });
+
+  it("terminates process when queued writes are dropped because stdin is not writable", async () => {
+    const mod = await import("../src/app-server/client.js");
+    const client = new mod.AppServerClient();
+
+    const internal = client as unknown as {
+      process: {
+        stdin: { writable: boolean };
+        pid: number;
+        kill: (signal?: NodeJS.Signals | number) => boolean;
+      } | null;
+      writeQueue: string[];
+      queuedBytes: number;
+      flushWriteQueue: () => void;
+      terminate: (signal: NodeJS.Signals) => void;
+    };
+
+    internal.process = {
+      stdin: { writable: false },
+      pid: 4242,
+      kill: () => true,
+    };
+    internal.writeQueue = ["{\"jsonrpc\":\"2.0\",\"id\":1}\n"];
+    internal.queuedBytes = internal.writeQueue[0].length;
+
+    const terminateSpy = vi
+      .spyOn(internal as unknown as { terminate: (signal: NodeJS.Signals) => void }, "terminate")
+      .mockImplementation(() => {});
+
+    internal.flushWriteQueue();
+
+    expect(terminateSpy).toHaveBeenCalledWith("SIGTERM");
+    expect(internal.writeQueue).toHaveLength(0);
+    expect(internal.queuedBytes).toBe(0);
+  });
 });
