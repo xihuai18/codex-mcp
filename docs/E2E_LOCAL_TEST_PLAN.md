@@ -82,12 +82,14 @@ node dist/index.js
 
 Do not continue to TC0 until the MCP client can start the server command successfully.
 
-If you can run scripts in this repository, these quick checks are useful:
+Source-only verification (skip if you installed via npm/npx):
+
+If you are testing from a local repository checkout (option 3 above), these scripts can verify stdout cleanliness before connecting an MCP client. They are **not available** when using the published npm package.
 
 ```bash
-npm run check:stdio
-npm run check:stdio:strict
-npm run smoke:mcp
+npm run check:stdio        # basic stdout cleanliness check
+npm run check:stdio:strict # strict mode (fails on any stdout contamination)
+npm run smoke:mcp          # lightweight MCP handshake smoke test
 ```
 
 ## 3. Capability Gate (5-Minute Smoke)
@@ -122,7 +124,7 @@ Expected:
 
 1. Verify the count returned by `resources/list`. If fewer than 6 appear, you may be running an older server build. Run `npm run build` (if testing from source) or update the package to ensure all resources are registered.
 2. The minimum required set is: `server-info`, `config`, `gotchas` (these 3 have been present since early versions).
-3. `compat-report`, `quickstart`, `errors` were added later. If missing, note the gap in your report but do not block on it — proceed to TC1.
+3. `compat-report`, `quickstart`, `errors` were added after the npm `0.1.0` release. To get all 6 resources, either build from source (`master` branch) or use `@leo000001/codex-mcp@>=0.2.0` when published. If missing, note the gap in your report but do not block on it — proceed to TC1.
 4. JSON resources should parse cleanly; markdown resources should return non-empty text.
 
 Stop and troubleshoot only if `resources/list` itself fails or returns 0 resources.
@@ -131,52 +133,14 @@ Stop and troubleshoot only if `resources/list` itself fails or returns 0 resourc
 
 Because this plan targets third-party environments, use an inline reproducible project.
 
-## 4.1 PowerShell Setup
+Choose the setup script that matches your **shell**, not your OS:
 
-```powershell
-$dst = "D:\Lab\codex-mcp-e2e\mean-bug"
-New-Item -ItemType Directory -Force -Path $dst | Out-Null
+- **Bash** (Linux, macOS, Windows MINGW/Git Bash, WSL): use section 4.1
+- **PowerShell** (Windows native `pwsh` or `powershell`): use section 4.2
 
-@'
-{
-  "name": "mean-bug",
-  "private": true,
-  "type": "module",
-  "scripts": {
-    "test": "node --test"
-  }
-}
-'@ | Set-Content -Path (Join-Path $dst "package.json") -Encoding UTF8
+> **Windows users**: If your MCP client runs in MINGW/Git Bash (e.g., Claude Code on Windows defaults to bash), use the Bash setup even though you are on Windows. Only use the PowerShell setup if you are explicitly running in a PowerShell terminal.
 
-@'
-export function mean(arr) {
-  if (!Array.isArray(arr) || arr.length === 0) return 0;
-  const sum = arr.reduce((a, b) => a + b, 0);
-  return sum / (arr.length + 1); // BUG: should divide by arr.length
-}
-'@ | Set-Content -Path (Join-Path $dst "math.js") -Encoding UTF8
-
-@'
-import test from "node:test";
-import assert from "node:assert/strict";
-import { mean } from "./math.js";
-
-test("mean of [1,2,3] should be 2", () => {
-  assert.equal(mean([1, 2, 3]), 2);
-});
-
-test("mean of [5,5] should be 5", () => {
-  assert.equal(mean([5, 5]), 5);
-});
-'@ | Set-Content -Path (Join-Path $dst "math.test.js") -Encoding UTF8
-
-Set-Location $dst
-npm test
-```
-
-> **Windows warning**: If your PowerShell profile loads modules like oh-my-posh or custom PSReadLine configurations, their stdout output will leak into every `codex app-server` command execution. This causes token waste and occasional command parsing failures. Run `pwsh -NoProfile` or clean your profile before testing.
-
-## 4.2 Bash Setup
+## 4.1 Bash Setup (Linux / macOS / Windows MINGW / WSL)
 
 ```bash
 dst="$HOME/codex-mcp-e2e/mean-bug"
@@ -216,6 +180,51 @@ test("mean of [5,5] should be 5", () => {
 EOF
 
 cd "$dst"
+npm test
+```
+
+## 4.2 PowerShell Setup (Windows native pwsh)
+
+> **Warning**: If your PowerShell profile loads modules like oh-my-posh or custom PSReadLine configurations, their stdout output will leak into every `codex app-server` command execution. This causes token waste and occasional command parsing failures. Run `pwsh -NoProfile` or clean your profile before testing.
+
+```powershell
+$dst = "D:\Lab\codex-mcp-e2e\mean-bug"
+New-Item -ItemType Directory -Force -Path $dst | Out-Null
+
+@'
+{
+  "name": "mean-bug",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test"
+  }
+}
+'@ | Set-Content -Path (Join-Path $dst "package.json") -Encoding UTF8
+
+@'
+export function mean(arr) {
+  if (!Array.isArray(arr) || arr.length === 0) return 0;
+  const sum = arr.reduce((a, b) => a + b, 0);
+  return sum / (arr.length + 1); // BUG: should divide by arr.length
+}
+'@ | Set-Content -Path (Join-Path $dst "math.js") -Encoding UTF8
+
+@'
+import test from "node:test";
+import assert from "node:assert/strict";
+import { mean } from "./math.js";
+
+test("mean of [1,2,3] should be 2", () => {
+  assert.equal(mean([1, 2, 3]), 2);
+});
+
+test("mean of [5,5] should be 5", () => {
+  assert.equal(mean([5, 5]), 5);
+});
+'@ | Set-Content -Path (Join-Path $dst "math.test.js") -Encoding UTF8
+
+Set-Location $dst
 npm test
 ```
 
@@ -259,8 +268,8 @@ After `codex` or `codex_reply`:
 3. If `cursorResetTo` appears, your cursor is stale. For the next request, always use the returned `nextCursor` (in no-event cases it is typically equal to `cursorResetTo`).
 4. Terminal statuses are `idle`, `error`, `cancelled`.
 5. `respond_permission` / `respond_user_input` may return compact ACK by default (`events` can be empty). Continue polling for streamed events.
-6. Keep `maxEvents` small per action type:
-   - `poll`: defaults to `1`. Increase to `10-20` only for faster catch-up. Sending `0` is normalized to `1` to avoid no-op loops.
+6. `maxEvents` per action type:
+   - `poll`: defaults to `1`. You can increase to `10-20` to fetch more accumulated events per call. Sending `0` is normalized to `1` to avoid no-op loops.
    - `respond_*`: defaults to `0` (compact ACK, no event replay). Use `1-5` only when you need immediate events alongside the approval response.
    - `maxEvents` is a top-level `codex_check` field, not inside `pollOptions`.
 7. `responseMode` defaults to `minimal`. Available modes:
@@ -272,14 +281,22 @@ After `codex` or `codex_reply`:
 10. `pollOptions.includeTools` is currently a reserved compatibility field; when set to `true`, codex-mcp typically returns a `compatWarnings` note instead of tool metadata (the warning can be omitted under strict `maxBytes` budget).
 11. In `respond_*` flows, if a stale `cursor` is provided, codex-mcp can auto-normalize to session cursor and include a `compatWarnings` notice.
 
-Observed default polling cadence in implementation:
+Observed internal polling cadence (codex-mcp → app-server, NOT MCP client → codex-mcp):
 
-1. `running`: around 3000ms
-2. `waiting_approval`: around 1000ms
-3. During long reasoning phases, no new events for 30-60+ seconds can still be normal. Keep polling with patience instead of treating silence as failure.
-4. If your client supports adaptive backoff, increase interval when no events arrive, then reset when new events appear.
+These values describe how often codex-mcp internally checks the app-server subprocess for new events. They are **not** recommendations for how often MCP clients should call `codex_check`.
 
-MCP client-specific note: In MCP clients (e.g., Claude Code, Cursor), each poll is a full tool call round-trip with LLM overhead, so actual polling intervals are much longer than the raw millisecond values above. To compensate, use `maxEvents=10` or `maxEvents=20` to fetch more events per poll. This reduces the total number of tool calls needed and is strongly recommended for MCP client environments.
+1. `running`: codex-mcp checks app-server every ~3000ms internally.
+2. `waiting_approval`: codex-mcp checks every ~1000ms internally.
+3. During long reasoning phases, no new events for 30-60+ seconds can still be normal.
+
+Recommended MCP client polling strategy:
+
+Codex tasks often take 2-10+ minutes. Do not poll every turn.
+
+1. When `status` is `running`: wait at least 2 minutes between polls (never less). Estimate task duration and increase to 3-10+ minutes for larger tasks.
+2. When `status` is `waiting_approval`: target ~1 second polling to respond to `actions[]` and unblock quickly.
+3. When `status` is `idle`, `error`, or `cancelled`: stop polling. The session is done.
+4. The tool descriptions for `codex`, `codex_reply`, and `codex_check` include this guidance so LLM callers see it directly.
 
 ## 5.3 Approval Rules
 
@@ -348,7 +365,7 @@ Tool call (`codex`) suggested payload:
 }
 ```
 
-Then poll:
+Then poll (wait at least 2 minutes after starting the session before first poll):
 
 ```json
 {
@@ -430,10 +447,32 @@ Validate:
 4. `action="interrupt"` works only while active turn is running.
 5. `action="fork"` creates a new session/thread branch.
 
+Interrupt trigger strategy:
+
+The `interrupt` action requires the session to be in `running` status, but MCP client polling latency makes the window narrow. To reliably test it:
+
+1. Start a new session with a deliberately slow prompt and high effort to create a long `running` window:
+
+```json
+{
+  "prompt": "Read every file in this workspace carefully, then write a detailed 500-word analysis of the code structure, patterns used, and potential improvements. Take your time.",
+  "approvalPolicy": "never",
+  "sandbox": "read-only",
+  "effort": "high",
+  "cwd": "<REPRO_CWD>"
+}
+```
+
+2. Using `approvalPolicy="never"` avoids `waiting_approval` interruptions, keeping the session in `running` longer.
+3. Poll once to confirm `status="running"`, then immediately call `codex_session(action="interrupt", sessionId=...)`.
+4. Poll again to verify the session transitions to `idle` (interrupted turns end as `idle`).
+5. If the session reaches `idle` before you can interrupt, the prompt was too simple — retry with a more complex prompt or higher effort.
+
 Pass criteria:
 
 1. State changes match action semantics.
 2. No transport crash on management operations.
+3. `interrupt` successfully stops a running turn (or is documented as missed due to timing).
 
 ## TC6 (Optional): Structured Output
 
@@ -597,6 +636,32 @@ Fix:
    - safe read path with controllable approvals: `on-request + read-only`
    - pure dialogue path (no workspace commands expected): `never + read-only`
    - strict review path: `untrusted + workspace-write`
+
+## Symptom: Excessive token waste on Windows (PowerShell profile noise)
+
+Likely cause:
+
+1. PowerShell profile (`$PROFILE`) loads modules (oh-my-posh, PSReadLine, etc.) that emit stdout on every shell invocation. Codex spawns a new PowerShell process for each command, so profile output repeats on every turn — typically ~15 lines of noise per command execution.
+
+Mitigation (code-level):
+
+Since v0.2.0, codex-mcp includes a built-in shell noise filter that strips known PowerShell profile noise patterns (oh-my-posh, PSReadLine, module warnings, etc.) from `COMMAND_OUTPUT_DELTA` events before they enter the event buffer. This significantly reduces token waste without user intervention. The filter can be disabled with `CODEX_MCP_DISABLE_NOISE_FILTER=1` if it incorrectly strips legitimate output.
+
+Additional fix (recommended):
+
+1. For best results, also clean your PowerShell profile: run `pwsh -NoProfile` or temporarily rename your `$PROFILE` file. The code-level filter catches common patterns but cannot eliminate all possible profile noise.
+2. Alternatively, consider setting codex's shell to `cmd.exe` or a clean PowerShell installation path without profile loading.
+
+## Symptom: Too many polling round-trips / slow session progress
+
+Likely cause:
+
+1. The LLM caller polls `codex_check` every turn instead of waiting between polls. Codex tasks commonly take multiple minutes; polling every few seconds wastes tool calls.
+
+Fix:
+
+1. The tool descriptions for `codex`, `codex_reply`, and `codex_check` now include explicit polling frequency guidance: for `running`, wait at least 2 minutes and increase interval based on estimated task duration; only poll promptly when `status` is `waiting_approval`.
+2. If your LLM still polls too frequently, add a system prompt instruction: "When using codex_check, while status is running, wait at least 2 minutes between polls and extend further for complex tasks; only poll sooner for waiting_approval."
 
 ## 9. Test Report Template (Use This in Final Report)
 

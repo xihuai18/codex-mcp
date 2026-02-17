@@ -7,7 +7,7 @@ describe("executeCodexReply", () => {
       sessionId: "sess_123",
       threadId: "thread_123",
       status: "running" as const,
-      pollInterval: 3000,
+      pollInterval: 120000,
     }));
     const sessionManager = { replyToSession } as {
       replyToSession: (
@@ -43,7 +43,7 @@ describe("executeCodexReply", () => {
       sessionId: "sess_456",
       threadId: "thread_456",
       status: "running" as const,
-      pollInterval: 3000,
+      pollInterval: 120000,
     }));
     const sessionManager = { replyToSession } as {
       replyToSession: (

@@ -57,6 +57,44 @@ const COALESCED_PROGRESS_DELTA_METHODS = new Set<string>([
 // Guard against unbounded in-memory string growth when app-server emits hot delta streams.
 const MAX_COALESCED_DELTA_CHARS = 16_384;
 
+// ── Shell noise filtering ────────────────────────────────────────────
+// On Windows, PowerShell profile output (oh-my-posh, PSReadLine, etc.) leaks
+// into every command execution, wasting tokens in MCP client contexts.
+// These patterns are stripped from COMMAND_OUTPUT_DELTA events before they
+// enter the event buffer.  Disable with CODEX_MCP_DISABLE_NOISE_FILTER=1.
+const NOISE_FILTER_ENABLED = process.env.CODEX_MCP_DISABLE_NOISE_FILTER !== "1";
+
+const SHELL_NOISE_LINE_PATTERNS: RegExp[] = [
+  // oh-my-posh migration / update prompts
+  /oh-my-posh/i,
+  // PSReadLine configuration errors
+  /PSReadLine/i,
+  /Set-PSReadLineOption/i,
+  // PowerShell module auto-import warnings
+  /^WARNING:\s/,
+  // PowerShell profile loading messages
+  /Loading personal and system profiles/i,
+  // conda/mamba init noise that leaks through profiles
+  /^(\(base\)|\(conda\))/,
+  // Windows Terminal shell integration sequences
+  /\x1b\]633;/,
+  // Common "new version available" nag lines from profile tools
+  /A new version of .+ is available/i,
+];
+
+/**
+ * Strip known shell profile noise lines from a command output delta.
+ * Returns the cleaned string, or empty string if everything was noise.
+ */
+function stripShellNoise(delta: string): string {
+  if (!NOISE_FILTER_ENABLED) return delta;
+  const lines = delta.split("\n");
+  const cleaned = lines.filter((line) => !SHELL_NOISE_LINE_PATTERNS.some((re) => re.test(line)));
+  // Preserve original trailing newline structure
+  if (cleaned.length === 0) return "";
+  return cleaned.join("\n");
+}
+
 export interface SessionManagerOptions {
   /** Inject AppServerClient factory (for tests). */
   createClient?: () => AppServerClient;
@@ -965,7 +1003,17 @@ export class SessionManager {
           }
           break;
 
-        case Methods.COMMAND_OUTPUT_DELTA:
+        case Methods.COMMAND_OUTPUT_DELTA: {
+          // Filter known shell profile noise (PowerShell oh-my-posh, PSReadLine, etc.)
+          if (typeof p.delta === "string") {
+            const cleaned = stripShellNoise(p.delta);
+            if (cleaned.length === 0) break; // entire delta was noise, skip event
+            pushEvent(session.eventBuffer, "progress", { method, ...p, delta: cleaned });
+          } else {
+            pushEvent(session.eventBuffer, "progress", { method, ...p });
+          }
+          break;
+        }
         case Methods.FILE_CHANGE_OUTPUT_DELTA:
         case Methods.REASONING_TEXT_DELTA:
         case Methods.REASONING_SUMMARY_DELTA:

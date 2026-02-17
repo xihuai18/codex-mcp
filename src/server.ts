@@ -85,7 +85,13 @@ export function createServer(serverCwd: string): McpServer {
     sessionId: z.string().optional(),
     threadId: z.string().optional(),
     status: z.enum(["running", "idle"]).optional(),
-    pollInterval: z.number().int().optional(),
+    pollInterval: z
+      .number()
+      .int()
+      .optional()
+      .describe(
+        "Recommended minimum delay before next poll (ms): running >=120000, waiting_approval ~=1000."
+      ),
     ...errorOutputShape,
   };
 
@@ -96,7 +102,7 @@ export function createServer(serverCwd: string): McpServer {
     {
       title: "Start Codex Session",
       description:
-        "Start session asynchronously. Returns `{ sessionId, threadId, status, pollInterval }`. Poll `codex_check` for updates.",
+        "Start session asynchronously and return `{ sessionId, threadId, status, pollInterval }`. Use `pollInterval` as a minimum hint: `running` >=120000ms (increase for long tasks), `waiting_approval` ~=1000ms.",
       inputSchema: {
         prompt: z.string().describe("Task or question"),
         approvalPolicy: z
@@ -180,7 +186,7 @@ export function createServer(serverCwd: string): McpServer {
     {
       title: "Continue Codex Session",
       description:
-        "Continue existing session. Allowed in `idle`/`error`; otherwise `SESSION_BUSY`. Omitted override fields keep current session values. Returns immediately.",
+        "Continue existing session. Allowed in `idle`/`error`; otherwise `SESSION_BUSY`. Returns immediately. Use `pollInterval` as a minimum hint: `running` >=120000ms, `waiting_approval` ~=1000ms.",
       inputSchema: {
         sessionId: z.string().describe("Session ID from codex tool"),
         prompt: z.string().describe("Follow-up message"),
@@ -262,7 +268,13 @@ export function createServer(serverCwd: string): McpServer {
         cwd: z.string().optional(),
         profile: z.string().optional(),
         config: z.record(z.string(), z.unknown()).optional(),
-        pollInterval: z.number().int().optional(),
+        pollInterval: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            "Recommended minimum delay before next poll (ms): running >=120000, waiting_approval ~=1000."
+          ),
         success: z.boolean().optional(),
         message: z.string().optional(),
         ...errorOutputShape,
@@ -305,6 +317,12 @@ export function createServer(serverCwd: string): McpServer {
     {
       title: "Poll & Respond",
       description: `Poll session for events or respond to approval/input requests.
+
+POLLING FREQUENCY: Do NOT poll every turn. Codex tasks take minutes, not seconds.
+- Treat pollInterval as a minimum hint, not a fixed schedule.
+- "running": never poll faster than 120000ms (2 minutes); use longer intervals for longer tasks.
+- "waiting_approval": poll about every 1000ms and respond quickly to actions[].
+- When status is "idle"/"error"/"cancelled": stop polling, the session is done.
 
 poll: events since cursor. Default maxEvents=${POLL_DEFAULT_MAX_EVENTS}.
 
@@ -391,7 +409,13 @@ cursor omitted => use session last cursor. cursorResetTo => reset and continue.`
       outputSchema: {
         sessionId: z.string().optional(),
         status: z.enum(["running", "idle", "waiting_approval", "error", "cancelled"]).optional(),
-        pollInterval: z.number().int().optional(),
+        pollInterval: z
+          .number()
+          .int()
+          .optional()
+          .describe(
+            "Recommended minimum delay before next poll (ms): running >=120000, waiting_approval ~=1000."
+          ),
         events: z
           .array(
             z.object({

@@ -232,7 +232,15 @@ export enum ErrorCode {
 // ── Defaults ───────────────────────────────────────────────────────
 
 export const DEFAULT_EFFORT_LEVEL: EffortLevel = "low";
-export const DEFAULT_POLL_INTERVAL = 3000;
+/**
+ * Minimum recommended polling interval (ms) when session status is "running".
+ * MCP callers should treat this as a floor and can wait longer for larger tasks.
+ */
+export const DEFAULT_POLL_INTERVAL = 120_000;
+/**
+ * Polling interval (ms) while waiting for approval/user-input actions.
+ * Kept short so callers can unblock pending actions before approval timeout.
+ */
 export const WAITING_APPROVAL_POLL_INTERVAL = 1000;
 /** Public codex_check default for action="poll" when maxEvents is omitted. */
 export const POLL_DEFAULT_MAX_EVENTS = 1;

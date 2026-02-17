@@ -5,6 +5,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import type { AppServerClient } from "../src/app-server/client.js";
 import { Methods } from "../src/app-server/protocol.js";
 import { SessionManager } from "../src/session/manager.js";
+import { DEFAULT_POLL_INTERVAL, WAITING_APPROVAL_POLL_INTERVAL } from "../src/types.js";
 import { executeCodexCheck } from "../src/tools/codex-check.js";
 
 class MockAppServerClient extends EventEmitter {
@@ -192,6 +193,30 @@ describe("SessionManager protocol compatibility + approvals", () => {
 
     await manager.cancelSession(sessionId);
     expect(manager.getActiveSessionCount()).toBe(0);
+  });
+
+  it("returns poll interval hints by session status", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    const running = manager.pollEvents(sessionId);
+    expect(running.status).toBe("running");
+    expect(running.pollInterval).toBe(DEFAULT_POLL_INTERVAL);
+
+    client.emitServerRequest(31, Methods.COMMAND_APPROVAL, {
+      itemId: "item_poll_hint",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const waiting = manager.pollEvents(sessionId);
+    expect(waiting.status).toBe("waiting_approval");
+    expect(waiting.pollInterval).toBe(WAITING_APPROVAL_POLL_INTERVAL);
+
+    await manager.cancelSession(sessionId, "done");
+    const terminal = manager.pollEvents(sessionId);
+    expect(terminal.pollInterval).toBeUndefined();
   });
 
   it("exposes best-effort observed default model from recent sessions", async () => {

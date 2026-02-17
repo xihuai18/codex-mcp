@@ -36,7 +36,7 @@ describe("executeCodexSession", () => {
       sessionId: "sess_fork",
       threadId: "thread_fork",
       status: "idle" as const,
-      pollInterval: 3000,
+      pollInterval: 120000,
     }));
     const sessionManager = {
       getSession,
@@ -69,7 +69,7 @@ describe("executeCodexSession", () => {
       sessionId: "sess_fork",
       threadId: "thread_fork",
       status: "idle",
-      pollInterval: 3000,
+      pollInterval: 120000,
     });
     expect(forkSession).toHaveBeenCalledWith("sess_2");
   });

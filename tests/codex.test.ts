@@ -22,7 +22,7 @@ describe("executeCodex", () => {
       sessionId: "sess_1",
       threadId: "thread_1",
       status: "running" as const,
-      pollInterval: 3000,
+      pollInterval: 120000,
     }));
     const sessionManager = { createSession } as unknown as SessionManager;
 
@@ -59,7 +59,7 @@ describe("executeCodex", () => {
       sessionId: "sess_2",
       threadId: "thread_2",
       status: "running" as const,
-      pollInterval: 3000,
+      pollInterval: 120000,
     }));
     const sessionManager = { createSession } as unknown as SessionManager;
 
