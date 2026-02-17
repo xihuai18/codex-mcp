@@ -28,9 +28,9 @@ This repository is a TypeScript (ESM) MCP server that wraps the OpenAI Codex `ap
 | `codex`          | 启动新 session                                | 仅等 init（~几百ms） |
 | `codex_reply`    | 继续已有 session                              | 立即返回             |
 | `codex_session`  | 管理 session（list/get/cancel/interrupt/fork） | 同步                 |
-| `codex_check`    | 轮询事件 + 处理审批/用户输入请求（poll/respond_approval/respond_user_input） | 同步                 |
+| `codex_check`    | 轮询事件 + 处理审批/用户输入请求（poll/respond_permission/respond_user_input） | 同步                 |
 
-不暴露额外的配置工具、不暴露内部工具代理、不暴露 prompts；保留 3 个静态只读 resources（`server-info`/`config`/`gotchas`）用于文档与元信息。核心能力仍通过这 4 个工具的参数组合实现。
+不暴露额外的配置工具、不暴露内部工具代理、不暴露 prompts；保留 6 个静态只读 resources（`server-info`/`compat-report`/`config`/`gotchas`/`quickstart`/`errors`）用于文档与元信息。核心能力仍通过这 4 个工具的参数组合实现。
 
 ### 3. 最少配置（Minimum Configuration）
 

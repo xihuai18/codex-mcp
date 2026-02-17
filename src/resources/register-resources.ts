@@ -21,6 +21,7 @@ const RESOURCE_SCHEME = "codex-mcp";
 
 export const RESOURCE_URIS = {
   serverInfo: `${RESOURCE_SCHEME}:///server-info`,
+  compatReport: `${RESOURCE_SCHEME}:///compat-report`,
   config: `${RESOURCE_SCHEME}:///config`,
   gotchas: `${RESOURCE_SCHEME}:///gotchas`,
   quickstart: `${RESOURCE_SCHEME}:///quickstart`,
@@ -43,6 +44,13 @@ const RESOURCE_CATALOG: ResourceCatalogEntry[] = [
     name: "server_info",
     title: "Server Info",
     description: "Server metadata and runtime capabilities",
+    mimeType: "application/json",
+  },
+  {
+    key: "compatReport",
+    name: "compat_report",
+    title: "Compat Report",
+    description: "Cross-backend compatibility capability report",
     mimeType: "application/json",
   },
   {
@@ -181,6 +189,11 @@ function buildConfigGuideText(): string {
     "- `codex_session.includeSensitive`: default `false`.",
     `- \`codex_check.poll.maxEvents\`: default \`${POLL_DEFAULT_MAX_EVENTS}\` (minimum \`${POLL_MIN_MAX_EVENTS}\`).`,
     `- \`codex_check.respond_*.maxEvents\`: default \`${RESPOND_DEFAULT_MAX_EVENTS}\`.`,
+    "- `codex_check.responseMode`: default `minimal` (`minimal` / `delta_compact` / `full`).",
+    "- `codex_check.pollOptions.includeEvents`: default `true`.",
+    "- `codex_check.pollOptions.includeActions`: default `true`.",
+    "- `codex_check.pollOptions.includeResult`: default `true`.",
+    "- `codex_check.pollOptions.maxBytes`: default unlimited.",
     "- `codex_check.cursor`: default is session last consumed cursor when omitted.",
     "",
   ].join("\n");
@@ -194,7 +207,9 @@ function buildGotchasText(): string {
     "- Store `nextCursor` and pass it back to avoid replay.",
     `- Poll default is \`maxEvents=${POLL_DEFAULT_MAX_EVENTS}\` (authoritative: tool schema / constants).`,
     `- Poll enforces minimum \`maxEvents=${POLL_MIN_MAX_EVENTS}\`; sending \`0\` is normalized to \`${POLL_MIN_MAX_EVENTS}\`.`,
-    `- \`respond_approval\` and \`respond_user_input\` default to compact ACK with \`maxEvents=${RESPOND_DEFAULT_MAX_EVENTS}\`.`,
+    `- \`respond_permission\` and \`respond_user_input\` default to compact ACK with \`maxEvents=${RESPOND_DEFAULT_MAX_EVENTS}\`.`,
+    "- `respond_approval` is a deprecated alias for `respond_permission`.",
+    "- Default response mode is `minimal`; use `full` if you need full raw event payloads.",
     "- respond_* uses monotonic cursor handling: `max(cursor, sessionLastCursor)`.",
     "- If `cursorResetTo` is present, your cursor is stale (old events were evicted); restart from that value.",
     "",
@@ -275,7 +290,7 @@ function buildQuickstartText(): string {
     "",
     "```json",
     "{",
-    '  "action": "respond_approval",',
+    '  "action": "respond_permission",',
     '  "sessionId": "sess_abc123",',
     '  "requestId": "req_123",',
     '  "decision": "acceptForSession"',
@@ -303,6 +318,7 @@ function buildQuickstartText(): string {
     "",
     "- Omit `cursor` to continue from session last consumed cursor.",
     `- Omit \`maxEvents\`: defaults are poll=${POLL_DEFAULT_MAX_EVENTS}, respond_*=${RESPOND_DEFAULT_MAX_EVENTS}.`,
+    "- Omit `responseMode`: default is `minimal`.",
     "- Use returned `nextCursor` for the next call.",
     "- If `cursorResetTo` appears, reset to that value and continue.",
     "",
@@ -333,6 +349,58 @@ function buildErrorsText(): string {
   lines.push("");
 
   return lines.join("\n");
+}
+
+function buildCompatReport(
+  deps: { version: string; sessionManager: RuntimeMetadataProvider },
+  codexCliVersion: string | null
+): string {
+  const runtimeWarnings: string[] = [];
+  if (!codexCliVersion) {
+    runtimeWarnings.push("Unable to detect local codex CLI version from PATH.");
+  }
+  return JSON.stringify(
+    {
+      schemaVersion: "1.0.0",
+      features: {
+        respondPermission: true,
+        respondApprovalAlias: true,
+        respondUserInput: true,
+        sessionInterrupt: true,
+        responseModeMinimal: true,
+        responseModeDeltaCompact: true,
+        responseModeFull: true,
+        pollOptionsBase: true,
+        maxBytesTruncation: true,
+        compatWarnings: true,
+        diskResume: false,
+        dynamicTools: false,
+        toolPermissionControl: false,
+      },
+      recommendedSettings: {
+        codexCheck: {
+          responseMode: "minimal",
+          pollOptions: {
+            includeEvents: true,
+            includeActions: true,
+            includeResult: true,
+          },
+        },
+      },
+      toolCounts: {
+        core: 4,
+      },
+      runtimeWarnings,
+      detectedMismatches: [],
+      runtime: {
+        codexMcpVersion: deps.version,
+        codexCliVersion,
+        activeSessions: deps.sessionManager.getActiveSessionCount(),
+      },
+    },
+    null,
+    2
+  );
 }
 
 export function registerResources(
@@ -390,6 +458,24 @@ export function registerResources(
         "application/json"
       );
     }
+  );
+
+  const compatReportMeta = byKey.get("compatReport")!;
+  const compatReportUri = new URL(RESOURCE_URIS.compatReport);
+  server.registerResource(
+    compatReportMeta.name,
+    compatReportUri.toString(),
+    {
+      title: compatReportMeta.title,
+      description: compatReportMeta.description,
+      mimeType: compatReportMeta.mimeType,
+    },
+    () =>
+      asTextResource(
+        compatReportUri,
+        buildCompatReport(deps, getCodexCliVersion()),
+        "application/json"
+      )
   );
 
   const configMeta = byKey.get("config")!;

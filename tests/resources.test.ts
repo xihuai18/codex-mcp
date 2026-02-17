@@ -39,6 +39,7 @@ describe("resources", () => {
 
     const uris = registered.map((r) => r.uri);
     expect(uris).toContain(RESOURCE_URIS.serverInfo);
+    expect(uris).toContain(RESOURCE_URIS.compatReport);
     expect(uris).toContain(RESOURCE_URIS.config);
     expect(uris).toContain(RESOURCE_URIS.gotchas);
     expect(uris).toContain(RESOURCE_URIS.quickstart);
@@ -73,6 +74,21 @@ describe("resources", () => {
     expect(payload.defaultModelSource).toBe("session-default");
     expect(Array.isArray(payload.resources)).toBe(true);
 
+    const compatReport = registered.find((r) => r.uri === RESOURCE_URIS.compatReport);
+    expect(compatReport?.mimeType).toBe("application/json");
+    const compatResult = compatReport?.read() as { contents?: Array<{ text?: string }> };
+    const compatPayload = JSON.parse(compatResult.contents?.[0]?.text ?? "{}") as Record<string, unknown>;
+    const features = compatPayload.features as Record<string, unknown> | undefined;
+    const toolCounts = compatPayload.toolCounts as Record<string, unknown> | undefined;
+    expect(compatPayload.schemaVersion).toBe("1.0.0");
+    expect(features).toBeDefined();
+    expect(features).not.toBeNull();
+    expect(features?.respondPermission).toBe(true);
+    expect(features?.responseModeMinimal).toBe(true);
+    expect(toolCounts).toBeDefined();
+    expect(toolCounts).not.toBeNull();
+    expect(toolCounts?.core).toBe(4);
+
     const gotchas = registered.find((r) => r.uri === RESOURCE_URIS.gotchas);
     expect(gotchas?.mimeType).toBe("text/markdown");
     const gotchasResult = gotchas?.read() as { contents?: Array<{ text?: string }> };
@@ -87,7 +103,7 @@ describe("resources", () => {
     const quickstartResult = quickstart?.read() as { contents?: Array<{ text?: string }> };
     const quickstartText = quickstartResult.contents?.[0]?.text ?? "";
     expect(quickstartText).toContain("Minimal flow");
-    expect(quickstartText).toContain("\"action\": \"respond_approval\"");
+    expect(quickstartText).toContain("\"action\": \"respond_permission\"");
 
     const errors = registered.find((r) => r.uri === RESOURCE_URIS.errors);
     expect(errors?.mimeType).toBe("text/markdown");

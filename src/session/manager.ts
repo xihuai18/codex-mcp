@@ -31,6 +31,8 @@ import {
   type PendingRequest,
   type SessionStartResult,
   type CheckResult,
+  type ResponseMode,
+  type PollOptions,
   ErrorCode,
   COMMAND_DECISIONS,
   FILE_CHANGE_DECISIONS,
@@ -60,6 +62,11 @@ export interface SessionManagerOptions {
   createClient?: () => AppServerClient;
   /** Disable background cleanup timer (useful for tests). */
   disableCleanup?: boolean;
+}
+
+export interface PollQueryOptions {
+  responseMode?: ResponseMode;
+  pollOptions?: PollOptions;
 }
 
 export class SessionManager {
@@ -518,61 +525,130 @@ export class SessionManager {
 
   // ── Event Polling ────────────────────────────────────────────────
 
-  pollEvents(sessionId: string, cursor?: number, maxEvents = DEFAULT_MAX_EVENTS): CheckResult {
+  pollEvents(
+    sessionId: string,
+    cursor?: number,
+    maxEvents = DEFAULT_MAX_EVENTS,
+    options: PollQueryOptions = {}
+  ): CheckResult {
     const session = this.getSessionOrThrow(sessionId);
     const buf = session.eventBuffer;
+    const responseMode = options.responseMode ?? "full";
+    const pollOptions = options.pollOptions;
+    const includeEvents = pollOptions?.includeEvents ?? true;
+    const includeActions = pollOptions?.includeActions ?? true;
+    const includeResult = pollOptions?.includeResult ?? true;
+    const maxBytes = pollOptions?.maxBytes;
     const effectiveCursor = cursor ?? session.lastEventCursor;
 
     // Find events with id >= cursor
-    let events = buf.events.filter((e) => e.id >= effectiveCursor);
+    let events = includeEvents ? buf.events.filter((e) => e.id >= effectiveCursor) : [];
     let cursorResetTo: number | undefined;
 
     // Check if cursor is stale (events were evicted)
-    if (buf.events.length > 0) {
+    if (includeEvents && buf.events.length > 0) {
       const earliest = buf.events[0].id;
       if (earliest > effectiveCursor) {
         cursorResetTo = earliest;
         events = buf.events;
       }
     }
+    const cursorFloor = cursorResetTo ?? effectiveCursor;
 
     // Limit events
     if (events.length > maxEvents) {
       events = events.slice(0, maxEvents);
     }
 
-    const nextCursor = events.length > 0 ? events[events.length - 1].id + 1 : effectiveCursor;
-    session.lastEventCursor = nextCursor;
+    let nextCursor = events.length > 0 ? events[events.length - 1].id + 1 : cursorFloor;
+    if (includeEvents) {
+      session.lastEventCursor = nextCursor;
+    }
 
     // Collect pending actions
     const actions: CheckResult["actions"] = [];
-    for (const [, req] of session.pendingRequests) {
-      if (!req.resolved) {
-        actions.push({
-          type: req.kind === "user_input" ? "user_input" : "approval",
-          requestId: req.requestId,
-          kind: req.kind,
-          params: req.params,
-          itemId: req.itemId,
-          reason: req.reason,
-          createdAt: req.createdAt,
-        });
+    if (includeActions) {
+      for (const [, req] of session.pendingRequests) {
+        if (!req.resolved) {
+          actions.push({
+            type: req.kind === "user_input" ? "user_input" : "approval",
+            requestId: req.requestId,
+            kind: req.kind,
+            params: req.params,
+            itemId: req.itemId,
+            reason: req.reason,
+            createdAt: req.createdAt,
+          });
+        }
       }
     }
 
-    return {
+    const result: CheckResult = {
       sessionId,
       status: session.status,
       pollInterval: pollIntervalForStatus(session.status),
-      events: events.map(({ id, type, data, timestamp }) => ({ id, type, data, timestamp })),
+      events: events.map((event) => serializeEventForMode(event, responseMode)),
       nextCursor,
       cursorResetTo,
       actions: actions.length > 0 ? actions : undefined,
       result:
-        session.status === "idle" || session.status === "error" || session.status === "cancelled"
+        includeResult &&
+        (session.status === "idle" || session.status === "error" || session.status === "cancelled")
           ? session.lastResult
           : undefined,
     };
+
+    if (pollOptions?.includeTools === true) {
+      addCompatWarningWithinBudget(
+        result,
+        "pollOptions.includeTools is not yet supported by codex-mcp; returning no tool metadata.",
+        maxBytes
+      );
+    }
+
+    if (typeof maxBytes === "number") {
+      const normalizedMaxBytes = Math.max(1, Math.floor(maxBytes));
+      const hasAnyPayload =
+        result.events.length > 0 || typeof result.actions !== "undefined" || typeof result.result !== "undefined";
+      if (hasAnyPayload && payloadByteSize(result) > normalizedMaxBytes) {
+        const truncatedFields: string[] = [];
+
+        if (result.events.length > 0) {
+          while (result.events.length > 0 && payloadByteSize(result) > normalizedMaxBytes) {
+            result.events.pop();
+          }
+          nextCursor =
+            result.events.length > 0 ? result.events[result.events.length - 1]!.id + 1 : cursorFloor;
+          result.nextCursor = nextCursor;
+          if (includeEvents && session.lastEventCursor > nextCursor) {
+            session.lastEventCursor = Math.max(nextCursor, cursorFloor);
+          }
+          truncatedFields.push("events");
+        }
+
+        if (typeof result.actions !== "undefined" && payloadByteSize(result) > normalizedMaxBytes) {
+          result.actions = undefined;
+          truncatedFields.push("actions");
+        }
+
+        if (typeof result.result !== "undefined" && payloadByteSize(result) > normalizedMaxBytes) {
+          result.result = undefined;
+          truncatedFields.push("result");
+        }
+
+        if (truncatedFields.length > 0) {
+          result.truncated = true;
+          result.truncatedFields = Array.from(new Set(truncatedFields));
+          addCompatWarningWithinBudget(
+            result,
+            `Response truncated to respect pollOptions.maxBytes=${normalizedMaxBytes}.`,
+            maxBytes
+          );
+        }
+      }
+    }
+
+    return result;
   }
 
   /**
@@ -583,12 +659,23 @@ export class SessionManager {
   pollEventsMonotonic(
     sessionId: string,
     cursor?: number,
-    maxEvents = DEFAULT_MAX_EVENTS
+    maxEvents = DEFAULT_MAX_EVENTS,
+    options: PollQueryOptions = {}
   ): CheckResult {
     const session = this.getSessionOrThrow(sessionId);
+    const sessionCursor = session.lastEventCursor;
+    const staleCursor = typeof cursor === "number" && cursor < sessionCursor;
     const effectiveCursor =
-      typeof cursor === "number" ? Math.max(cursor, session.lastEventCursor) : undefined;
-    return this.pollEvents(sessionId, effectiveCursor, maxEvents);
+      typeof cursor === "number" ? Math.max(cursor, sessionCursor) : undefined;
+    const result = this.pollEvents(sessionId, effectiveCursor, maxEvents, options);
+    if (staleCursor) {
+      addCompatWarningWithinBudget(
+        result,
+        `Provided cursor ${cursor} is stale; used session cursor ${sessionCursor}.`,
+        options.pollOptions?.maxBytes
+      );
+    }
+    return result;
   }
 
   // ── Approval Response ────────────────────────────────────────────
@@ -1284,6 +1371,120 @@ function pushEvent(buf: EventBuffer, type: SessionEventType, data: unknown, pinn
     pinned,
   });
   evictEvents(buf);
+}
+
+function serializeEventForMode(
+  event: { id: number; type: SessionEventType; data: unknown; timestamp: string },
+  mode: ResponseMode
+): { id: number; type: SessionEventType; data: unknown; timestamp: string } {
+  if (mode === "full") {
+    return { id: event.id, type: event.type, data: event.data, timestamp: event.timestamp };
+  }
+  const minimal = mode === "minimal";
+  return {
+    id: event.id,
+    type: event.type,
+    data: compactEventData(event.data, minimal),
+    timestamp: event.timestamp,
+  };
+}
+
+function compactEventData(data: unknown, minimal: boolean): unknown {
+  if (!isRecord(data)) return data;
+
+  const compact: Record<string, unknown> = {};
+  if (typeof data.method === "string") {
+    compact.method = data.method;
+  }
+
+  const preferredKeys = minimal
+    ? [
+        "delta",
+        "message",
+        "error",
+        "status",
+        "phase",
+        "itemId",
+        "turnId",
+        "requestId",
+        "kind",
+        "decision",
+        "timeout",
+        "willRetry",
+        "retryCount",
+        "maxRetries",
+      ]
+    : [
+        "delta",
+        "message",
+        "error",
+        "status",
+        "phase",
+        "itemId",
+        "turnId",
+        "requestId",
+        "kind",
+        "decision",
+        "timeout",
+        "willRetry",
+        "retryCount",
+        "maxRetries",
+        "reason",
+        "command",
+        "cwd",
+        "sourceMethod",
+      ];
+
+  for (const key of preferredKeys) {
+    if (key in data) {
+      compact[key] = data[key];
+    }
+  }
+
+  if (typeof compact.delta === "string") {
+    const limit = minimal ? 256 : 2048;
+    if (compact.delta.length > limit) {
+      compact.delta = compact.delta.slice(0, limit);
+      compact.deltaTruncated = true;
+    }
+  }
+
+  if (Object.keys(compact).length === 0) {
+    return minimal ? { summary: "omitted for minimal response mode" } : { ...data };
+  }
+
+  return compact;
+}
+
+function payloadByteSize(value: unknown): number {
+  return Buffer.byteLength(JSON.stringify(value), "utf8");
+}
+
+function addCompatWarning(result: CheckResult, warning: string): void {
+  if (!result.compatWarnings) {
+    result.compatWarnings = [];
+  }
+  result.compatWarnings.push(warning);
+}
+
+function addCompatWarningWithinBudget(result: CheckResult, warning: string, maxBytes?: number): void {
+  const previousWarnings = result.compatWarnings ? [...result.compatWarnings] : undefined;
+  addCompatWarning(result, warning);
+
+  if (typeof maxBytes !== "number") {
+    return;
+  }
+
+  const normalizedMaxBytes = Math.max(1, Math.floor(maxBytes));
+  if (payloadByteSize(result) <= normalizedMaxBytes) {
+    return;
+  }
+
+  if (!previousWarnings || previousWarnings.length === 0) {
+    result.compatWarnings = undefined;
+    return;
+  }
+  result.compatWarnings = previousWarnings;
 }
 
 function tryCoalesceProgressDelta(

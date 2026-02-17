@@ -14,7 +14,7 @@ MCP server that wraps [OpenAI Codex](https://github.com/openai/codex) `app-serve
 - **Zero config** — inherits your local `~/.codex/config.toml` automatically
 - **Session management** — list, inspect, cancel, interrupt, fork sessions
 - **Event streaming** — cursor-based pagination with pin-protected event buffer
-- **Static read-only resources** — `codex-mcp:///server-info`, `codex-mcp:///config`, `codex-mcp:///gotchas`
+- **Static read-only resources** — `codex-mcp:///server-info`, `codex-mcp:///compat-report`, `codex-mcp:///config`, `codex-mcp:///gotchas`, `codex-mcp:///quickstart`, `codex-mcp:///errors`
 
 ## Prerequisites
 
@@ -141,8 +141,11 @@ Start a Codex agent session asynchronously. Returns immediately with `sessionId`
 If your MCP client supports resources, this server exposes a few **read-only** resources:
 
 - `codex-mcp:///server-info` (JSON): static server metadata (version/platform/runtime)
+- `codex-mcp:///compat-report` (JSON): capability summary for cross-backend adapter compatibility
 - `codex-mcp:///config` (Markdown): config mapping guide, including how to use `codex.advanced.config`
 - `codex-mcp:///gotchas` (Markdown): practical limits/gotchas
+- `codex-mcp:///quickstart` (Markdown): minimal workflow examples
+- `codex-mcp:///errors` (Markdown): error code catalog + recovery hints
 
 ### `codex_reply` — Continue a session
 
@@ -200,12 +203,14 @@ Query a running session for events, respond to approval requests, or answer user
 
 | Parameter             | Type     | Required                          | Description                                                                                                                                                                                      |
 | --------------------- | -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `action`              | string   | Yes                               | `"poll"`, `"respond_approval"`, or `"respond_user_input"`                                                                                                                                        |
+| `action`              | string   | Yes                               | `"poll"`, `"respond_permission"`, `"respond_approval"` (deprecated alias), or `"respond_user_input"`                                                                                            |
 | `sessionId`           | string   | Yes                               | Target session ID                                                                                                                                                                                |
 | `cursor`              | number   | No                                | Event cursor for incremental polling (`action="poll"`). For `respond_*`, codex-mcp applies monotonic cursor progression: `max(cursor, sessionLastCursor)`.                                   |
 | `maxEvents`           | number   | No                                | Keep this small. `poll` default: `1` (minimum `1`; increase only for catch-up). `respond_*` default: `0` (recommended; compact ACK, no event replay).                                           |
-| `requestId`           | string   | For respond_approval/user_input   | Request ID from `actions[]`                                                                                                                                                                      |
-| `decision`            | string   | For respond_approval              | For command approvals: `"accept"`, `"acceptForSession"`, `"acceptWithExecpolicyAmendment"`, `"decline"`, `"cancel"`; for file changes: `"accept"`, `"acceptForSession"`, `"decline"`, `"cancel"` |
+| `responseMode`        | string   | No                                | Response shaping mode: `minimal` (default), `delta_compact`, `full`                                                                                                                             |
+| `pollOptions`         | object   | No                                | Optional controls: `includeEvents` (default `true`), `includeActions` (default `true`), `includeResult` (default `true`), `maxBytes` (default unlimited)                                       |
+| `requestId`           | string   | For respond_permission/user_input | Request ID from `actions[]`                                                                                                                                                                      |
+| `decision`            | string   | For respond_permission            | For command approvals: `"accept"`, `"acceptForSession"`, `"acceptWithExecpolicyAmendment"`, `"decline"`, `"cancel"`; for file changes: `"accept"`, `"acceptForSession"`, `"decline"`, `"cancel"` |
 | `execpolicyAmendment` | string[] | For acceptWithExecpolicyAmendment | Exec policy amendment list (required when `decision="acceptWithExecpolicyAmendment"`)                                                                                                            |
 | `denyMessage`         | string   | No                                | Internal note on deny (not sent to app-server)                                                                                                                                                   |
 | `answers`             | object   | For respond_user_input            | For `respond_user_input`: `questionId -> { answers: string[] }`                                                                                                                                  |
@@ -215,7 +220,7 @@ Query a running session for events, respond to approval requests, or answer user
 ```json
 { "action": "poll", "sessionId": "sess_abc123", "cursor": 0 }
 {
-  "action": "respond_approval",
+  "action": "respond_permission",
   "sessionId": "sess_abc123",
   "requestId": "req_xyz",
   "decision": "accept"
@@ -237,6 +242,9 @@ Query a running session for events, respond to approval requests, or answer user
 - `cursorResetTo`: when present, older events were evicted; restart from this cursor to avoid gaps
 - `maxEvents`: max events returned per call
 - If `cursor` is omitted, codex-mcp continues from that session's last consumed cursor.
+- If `responseMode` is omitted, codex-mcp uses `minimal`.
+- `pollOptions.includeEvents/includeActions/includeResult` default to `true`.
+- `pollOptions.maxBytes` is optional and enforces best-effort payload truncation (`truncated`, `truncatedFields`).
 - `respond_*` defaults to compact ACK (`events: []`, no cursor advance) unless you explicitly pass `maxEvents`.
 - `poll` defaults to `maxEvents=1` to keep payloads small; increase temporarily (for example `10-20`) when you need to catch up faster.
 - If `poll` is called with `maxEvents=0`, codex-mcp treats it as `1` to avoid no-op polling loops.
@@ -250,8 +258,9 @@ Approvals/results/errors are pinned to reduce eviction risk.
 
 When the agent requests approval or user input, `poll` includes an `actions[]` list. Respond with:
 
-- `respond_approval`: `decision` is one of `accept`, `acceptForSession`, `decline`, `cancel`.
+- `respond_permission`: `decision` is one of `accept`, `acceptForSession`, `decline`, `cancel`.
   - For command approvals, `acceptWithExecpolicyAmendment` is supported and requires `execpolicyAmendment`.
+- `respond_approval` is still accepted as a deprecated alias for `respond_permission`.
 - `respond_user_input`: send `answers` keyed by `questionId`.
 
 Pending approvals auto-decline after `advanced.approvalTimeoutMs`.
@@ -290,7 +299,7 @@ Common codes include `INVALID_ARGUMENT`, `SESSION_NOT_FOUND`, `SESSION_BUSY`, `S
 ```
 1. codex(prompt="Fix bug X")           → { sessionId, threadId, status: "running" }
 2. codex_check(action="poll", ...)      → events[], status, actions[]
-3. codex_check(action="respond_approval", decision="accept")  (if needed)
+3. codex_check(action="respond_permission", decision="accept")  (if needed)
 4. codex_check(action="poll", ...)      → result when status="idle"
 5. codex_reply(prompt="Also add tests") → new turn starts
 6. codex_check(action="poll", ...)      → poll until done
@@ -332,7 +341,7 @@ npm run check:stdio:strict
 
 End-to-end local test plan (after installing/configuring in an MCP client):
 - Full guide (LLM operator handbook): `docs/E2E_LOCAL_TEST_PLAN.md`
-- Quick English checklist: run `codex` → poll with `codex_check(action="poll")` → respond via `respond_approval`/`respond_user_input` if `actions[]` appears → continue polling until `status` is `idle`/`error`/`cancelled`.
+- Quick English checklist: run `codex` → poll with `codex_check(action="poll")` → respond via `respond_permission`/`respond_user_input` if `actions[]` appears → continue polling until `status` is `idle`/`error`/`cancelled`.
 
 ## Project Policies
 

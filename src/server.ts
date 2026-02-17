@@ -17,6 +17,7 @@ import {
   SUMMARY_MODES,
   SESSION_ACTIONS,
   CHECK_ACTIONS,
+  RESPONSE_MODES,
   ALL_DECISIONS,
   DEFAULT_APPROVAL_TIMEOUT_MS,
   POLL_DEFAULT_MAX_EVENTS,
@@ -322,7 +323,9 @@ export function createServer(serverCwd: string): McpServer {
 
 poll: events since cursor. Default maxEvents=${POLL_DEFAULT_MAX_EVENTS}.
 
-respond_approval: approval decision. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
+respond_permission: approval decision. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
+
+respond_approval: deprecated alias for respond_permission.
 
 respond_user_input: user-input answers. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
 
@@ -345,12 +348,45 @@ cursor omitted => use session last cursor. cursorResetTo => reset and continue.`
           .describe(
             `Max events. Default: poll=${POLL_DEFAULT_MAX_EVENTS} (min ${POLL_MIN_MAX_EVENTS}), respond_*=${RESPOND_DEFAULT_MAX_EVENTS}.`
           ),
-        // respond_approval
+        responseMode: z
+          .enum(RESPONSE_MODES)
+          .optional()
+          .describe("Response mode. Default: minimal. Options: minimal/delta_compact/full."),
+        pollOptions: z
+          .object({
+            includeEvents: z
+              .boolean()
+              .optional()
+              .describe("Default: true. Include events[] in response."),
+            includeActions: z
+              .boolean()
+              .optional()
+              .describe("Default: true. Include actions[] in response."),
+            includeResult: z
+              .boolean()
+              .optional()
+              .describe("Default: true. Include result in response."),
+            maxBytes: z
+              .number()
+              .int()
+              .positive()
+              .optional()
+              .describe("Default: unlimited. Best-effort response payload cap in bytes."),
+            includeTools: z
+              .boolean()
+              .optional()
+              .describe("Default: false. Reserved for future dynamic tool metadata support."),
+          })
+          .optional()
+          .describe("Optional poll shaping controls."),
+        // respond_permission/respond_approval
         requestId: z.string().optional().describe("Request ID from actions[]"),
         decision: z
           .enum(ALL_DECISIONS)
           .optional()
-          .describe("Approval decision. acceptWithExecpolicyAmendment requires execpolicyAmendment."),
+          .describe(
+            "Approval decision for respond_permission/respond_approval. acceptWithExecpolicyAmendment requires execpolicyAmendment."
+          ),
         execpolicyAmendment: z
           .array(z.string())
           .optional()
@@ -415,6 +451,9 @@ cursor omitted => use session last cursor. cursorResetTo => reset and continue.`
             completedAt: z.string(),
           })
           .optional(),
+        compatWarnings: z.array(z.string()).optional(),
+        truncated: z.boolean().optional(),
+        truncatedFields: z.array(z.string()).optional(),
         ...errorOutputShape,
       },
       annotations: {

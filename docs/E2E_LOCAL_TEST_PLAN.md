@@ -23,9 +23,9 @@ When you execute this plan as an LLM test operator:
 
 Minimum pass target:
 
-1. The server exposes 4 tools and 3 resources correctly.
+1. The server exposes 4 tools and 6 resources correctly.
 2. `codex` and `codex_reply` are asynchronous (return immediately, then progress via polling).
-3. Approval flow works (`respond_approval`), and session state changes correctly.
+3. Approval flow works (`respond_permission`, or deprecated `respond_approval`) and session state changes correctly.
 4. A real coding task closes the loop: test fails -> agent fixes -> test passes.
 5. Session management works (`list/get/cancel/interrupt/fork`).
 
@@ -49,6 +49,12 @@ Recommended:
 1. Ensure server stdout is clean (no banner/noise on stdout).
 2. Keep server logs on stderr only.
 3. Validate model/auth availability with a lightweight `codex` session before approval-heavy tests (recommended pair: `approvalPolicy=on-request`, `sandbox=read-only`).
+
+Windows-specific:
+
+1. Clean your PowerShell profile or use `pwsh -NoProfile` to avoid stdout noise (oh-my-posh migration prompts, PSReadLine errors). Profile output pollutes both the MCP handshake and all subsequent agent command turns, wasting tokens and context window.
+2. Paths with parentheses (e.g., `C:\Program Files (x86)`) can cause shell parsing failures. Prefer paths without special characters for `cwd`.
+3. Codex defaults to PowerShell as the shell on Windows. If bash-style commands fail (e.g., `ls -la`), this is expected. The agent typically self-corrects after 1-2 retries.
 
 ## 2.1 Start codex-mcp (Required Before TC0)
 
@@ -104,14 +110,17 @@ Expected tool names:
 Run `resources/list`, then read:
 
 1. `codex-mcp:///server-info`
-2. `codex-mcp:///config`
-3. `codex-mcp:///gotchas`
+2. `codex-mcp:///compat-report`
+3. `codex-mcp:///config`
+4. `codex-mcp:///gotchas`
+5. `codex-mcp:///quickstart`
+6. `codex-mcp:///errors`
 
 Expected:
 
-1. All 3 exist.
-2. `server-info` returns JSON metadata.
-3. `config` and `gotchas` return markdown text.
+1. All 6 exist.
+2. `server-info` and `compat-report` return JSON metadata.
+3. `config` / `gotchas` / `quickstart` / `errors` return markdown text.
 
 Stop and troubleshoot if this gate fails.
 
@@ -161,6 +170,8 @@ test("mean of [5,5] should be 5", () => {
 Set-Location $dst
 npm test
 ```
+
+> **Windows warning**: If your PowerShell profile loads modules like oh-my-posh or custom PSReadLine configurations, their stdout output will leak into every `codex app-server` command execution. This causes token waste and occasional command parsing failures. Run `pwsh -NoProfile` or clean your profile before testing.
 
 ## 4.2 Bash Setup
 
@@ -244,9 +255,18 @@ After `codex` or `codex_reply`:
 2. Persist `nextCursor` and pass it back next poll.
 3. If `cursorResetTo` appears, your cursor is stale; continue from `cursorResetTo`.
 4. Terminal statuses are `idle`, `error`, `cancelled`.
-5. `respond_approval` / `respond_user_input` may return compact ACK by default (`events` can be empty). Continue polling for streamed events.
-6. Keep `maxEvents` small: `poll` defaults to `1` (increase to `10-20` only for faster catch-up); for `respond_*`, prefer `0` (usually better than `1`) and use `1-5` only when immediate events are required.
-7. If `poll` is sent with `maxEvents=0`, codex-mcp treats it as `1` to avoid no-op polling loops.
+5. `respond_permission` / `respond_user_input` may return compact ACK by default (`events` can be empty). Continue polling for streamed events.
+6. Keep `maxEvents` small per action type:
+   - `poll`: defaults to `1`. Increase to `10-20` only for faster catch-up. Sending `0` is normalized to `1` to avoid no-op loops.
+   - `respond_*`: defaults to `0` (compact ACK, no event replay). Use `1-5` only when you need immediate events alongside the approval response.
+7. `responseMode` defaults to `minimal`. Available modes:
+   - `minimal`: smallest payload, key fields only.
+   - `delta_compact`: compact delta-focused payload (larger than `minimal`, smaller than `full` in typical streaming turns).
+   - `full`: raw complete event payloads for debugging.
+8. `pollOptions.includeEvents/includeActions/includeResult` default to `true`.
+9. When `pollOptions.maxBytes` is set and payload is too large, response can include `truncated=true`, `truncatedFields`, and `compatWarnings`; continue polling with returned `nextCursor`.
+10. `pollOptions.includeTools` is currently a reserved compatibility field; when set to `true`, expect a `compatWarnings` note instead of tool metadata.
+11. In `respond_*` flows, if a stale `cursor` is provided, codex-mcp can auto-normalize to session cursor and include a `compatWarnings` notice.
 
 Observed default polling cadence in implementation:
 
@@ -259,7 +279,7 @@ Observed default polling cadence in implementation:
 
 When `actions[]` is present:
 
-1. Approval actions use `respond_approval`.
+1. Approval actions use `respond_permission` (deprecated alias `respond_approval` is still accepted).
 2. User-input actions use `respond_user_input`.
 3. Do not guess request IDs; always copy the exact `requestId`.
 
@@ -289,12 +309,12 @@ Steps:
 
 1. Call `tools/list`.
 2. Call `resources/list`.
-3. Read the 3 resources in section 3.2.
+3. Read the 6 resources in section 3.2.
 
 Pass criteria:
 
 1. 4 tools present.
-2. 3 resources present and readable.
+2. 6 resources present and readable.
 3. No transport-level JSON-RPC corruption.
 
 ## TC1: Async Start + Poll (Read-Only Path)
@@ -346,7 +366,7 @@ Expected behavior:
 
 1. `status` switches to `waiting_approval` when approvals arrive.
 2. `actions[]` contains pending requests.
-3. After `respond_approval`, request disappears and status returns to `running` when queue empties.
+3. After `respond_permission`, request disappears and status returns to `running` when queue empties.
 
 Pass criteria:
 
@@ -509,6 +529,17 @@ Expected:
 1. `cursorResetTo` appears.
 2. Client restarts from `cursorResetTo` and continues safely.
 
+## 7.4 Poll Shaping Compatibility (`responseMode` + `pollOptions`)
+
+Checks:
+
+1. Generate a delta-heavy turn, then poll at the same cursor with `responseMode="minimal"`, `responseMode="delta_compact"`, and `responseMode="full"`.
+2. Compare payload sizes; for this workload, expect `minimal < delta_compact < full`.
+3. Poll once with `pollOptions.includeEvents=false`, then poll again with defaults; verify events were not consumed by the first poll.
+4. Poll with `pollOptions.includeTools=true`; expect `compatWarnings` mentioning unsupported `includeTools` behavior.
+5. Optional stress: combine very small `pollOptions.maxBytes` with deprecated alias path (`respond_approval`) and verify responses remain valid even if some compatibility warnings are omitted to stay under byte budget.
+6. Optional stale-cursor check for `respond_*`: send a smaller stale cursor than current session progress and verify response remains monotonic (no replay), with compatibility warning when warning budget allows.
+
 ## 8. Generic Troubleshooting
 
 ## Symptom: MCP handshake fails / invalid JSON
@@ -533,7 +564,7 @@ Likely cause:
 Fix:
 
 1. Poll again, copy exact `requestId`.
-2. Use `respond_approval` or `respond_user_input` with valid payload.
+2. Use `respond_permission` (or deprecated `respond_approval`) / `respond_user_input` with valid payload.
 
 ## Symptom: Unexpected permission behavior
 
@@ -588,7 +619,7 @@ If you are unsure about any critical behavior, discuss it with Claude Code expli
 Recommended prompts:
 
 1. `I got cursorResetTo=123 while polling session <id>. Show the exact next poll payload I should send and why.`
-2. `For request kind=fileChange, which decisions are legal? Validate this payload before I send respond_approval.`
+2. `For request kind=fileChange, which decisions are legal? Validate this payload before I send respond_permission (or deprecated respond_approval).`
 3. `I used acceptWithExecpolicyAmendment and got INVALID_ARGUMENT. Diagnose which field is missing from my payload.`
 4. `Given this poll output, determine if session is terminal and whether I should continue polling.`
 5. `Convert this content text JSON into a normalized report table with status transitions and approval decisions.`

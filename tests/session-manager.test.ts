@@ -550,6 +550,397 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(result.events.some((event) => event.type === "approval_result")).toBe(true);
   });
 
+  it("supports respond_permission as the primary approval action", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(41, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_primary",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+      },
+      manager
+    );
+
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    expect(client.respondToServer).toHaveBeenCalledWith(41, { decision: "accept" });
+  });
+
+  it("keeps respond_approval as a deprecated alias with compat warning", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(42, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_alias",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_approval",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+      },
+      manager
+    );
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    expect((poll2 as { compatWarnings?: string[] }).compatWarnings?.some((w) => w.includes("deprecated"))).toBe(
+      true
+    );
+  });
+
+  it("keeps respond_approval payload within maxBytes by dropping alias warning when required", async () => {
+    const { sessionId: baselineSessionId, threadId: baselineThreadId } = await manager.createSession(
+      "hi",
+      workspace,
+      {},
+      "medium"
+    );
+    client.emitServerRequest(43, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_baseline",
+      threadId: baselineThreadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+    const baselinePoll = manager.pollEvents(baselineSessionId, 0, 50);
+    const baselineRequestId = baselinePoll.actions?.[0]?.requestId;
+    expect(baselineRequestId).toBeDefined();
+
+    const baselineResult = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId: baselineSessionId,
+        requestId: baselineRequestId!,
+        decision: "accept",
+        pollOptions: { includeTools: true },
+      },
+      manager
+    );
+    const baselineBytes = Buffer.byteLength(JSON.stringify(baselineResult), "utf8");
+
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(44, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_alias_limited",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_approval",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+        pollOptions: { includeTools: true, maxBytes: baselineBytes },
+      },
+      manager
+    ) as { compatWarnings?: string[] };
+
+    const aliasBytes = Buffer.byteLength(JSON.stringify(poll2), "utf8");
+    expect(aliasBytes).toBeLessThanOrEqual(baselineBytes);
+    expect(poll2.compatWarnings?.some((w) => w.includes("includeTools"))).toBe(true);
+    expect(poll2.compatWarnings?.some((w) => w.includes("deprecated"))).not.toBe(true);
+  });
+
+  it("supports responseMode and keeps payload size minimal < delta_compact < full", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.COMMAND_OUTPUT_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_mode_1",
+      delta: "x".repeat(3000),
+    });
+
+    const full = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+        responseMode: "full",
+      },
+      manager
+    ) as { events: unknown[] };
+    const compact = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+        responseMode: "delta_compact",
+      },
+      manager
+    ) as { events: Array<{ data: { delta?: string; deltaTruncated?: boolean } }> };
+    const minimal = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+        responseMode: "minimal",
+      },
+      manager
+    ) as { events: unknown[] };
+
+    expect(full.events.length).toBeGreaterThan(0);
+    expect(compact.events.length).toBeGreaterThan(0);
+    expect(minimal.events.length).toBeGreaterThan(0);
+    const fullBytes = Buffer.byteLength(JSON.stringify(full), "utf8");
+    const compactBytes = Buffer.byteLength(JSON.stringify(compact), "utf8");
+    const minimalBytes = Buffer.byteLength(JSON.stringify(minimal), "utf8");
+    expect(compactBytes).toBeLessThan(fullBytes);
+    expect(minimalBytes).toBeLessThan(compactBytes);
+    const compactDeltaEvent = compact.events.find((event) => event.data.deltaTruncated === true);
+    expect(compactDeltaEvent).toBeDefined();
+    expect(compactDeltaEvent?.data.delta?.length).toBeLessThan(3000);
+    expect(minimalBytes).toBeLessThan(fullBytes);
+  });
+
+  it("keeps nextCursor at cursorResetTo floor when maxBytes truncates stale-event payloads", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    for (let i = 0; i < 1105; i++) {
+      client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+        threadId,
+        turnId: "turn_1",
+        itemId: `item_evicted_${i}`,
+        delta: `chunk-${i}-` + "x".repeat(64),
+      });
+    }
+
+    const truncated = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 2000,
+        responseMode: "full",
+        pollOptions: { maxBytes: 1 },
+      },
+      manager
+    ) as { events: Array<{ id: number }>; truncated?: boolean; truncatedFields?: string[]; cursorResetTo?: number; nextCursor: number };
+
+    expect(truncated.truncated).toBe(true);
+    expect(truncated.truncatedFields).toContain("events");
+    expect(truncated.events).toEqual([]);
+    expect(typeof truncated.cursorResetTo).toBe("number");
+    expect(truncated.nextCursor).toBe(truncated.cursorResetTo);
+
+    const resumed = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        maxEvents: 1,
+      },
+      manager
+    ) as { events: Array<{ id: number }> };
+
+    expect(resumed.events).toHaveLength(1);
+    expect(resumed.events[0]?.id).toBe(truncated.nextCursor);
+  });
+
+  it("uses cursorResetTo as nextCursor for stale polls when maxEvents=0", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    for (let i = 0; i < 1105; i++) {
+      client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+        threadId,
+        turnId: "turn_1",
+        itemId: `item_stale_zero_${i}`,
+        delta: `chunk-${i}`,
+      });
+    }
+
+    const poll = manager.pollEvents(sessionId, 0, 0);
+    expect(typeof poll.cursorResetTo).toBe("number");
+    expect(poll.nextCursor).toBe(poll.cursorResetTo);
+  });
+
+  it("uses cursorResetTo floor in respond_permission default ACK path when session cursor is stale", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    for (let i = 0; i < 1105; i++) {
+      client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+        threadId,
+        turnId: "turn_1",
+        itemId: `item_respond_stale_${i}`,
+        delta: `chunk-${i}`,
+      });
+    }
+    client.emitServerRequest(46, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_stale_ack",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const approvalPoll = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        pollOptions: { includeEvents: false },
+      },
+      manager
+    ) as { actions?: Array<{ requestId: string }> };
+    const requestId = approvalPoll.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const ack = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+      },
+      manager
+    ) as { events: unknown[]; cursorResetTo?: number; nextCursor: number };
+    expect(ack.events).toEqual([]);
+    expect(typeof ack.cursorResetTo).toBe("number");
+    expect(ack.nextCursor).toBe(ack.cursorResetTo);
+
+    const resumed = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        maxEvents: 1,
+      },
+      manager
+    ) as { events: Array<{ id: number }> };
+    expect(resumed.events).toHaveLength(1);
+    expect(resumed.events[0]?.id).toBe(ack.nextCursor);
+  });
+
+  it("does not consume events when includeEvents=false", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_include_events",
+      delta: "hello",
+    });
+
+    const noEvents = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+        pollOptions: { includeEvents: false },
+      },
+      manager
+    ) as { events: unknown[]; nextCursor: number };
+    expect(noEvents.events).toEqual([]);
+    expect(noEvents.nextCursor).toBe(0);
+
+    const withEvents = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+      },
+      manager
+    ) as { events: unknown[] };
+    expect(withEvents.events.length).toBeGreaterThan(0);
+  });
+
+  it("can omit actions with includeActions=false while keeping pending approvals", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(45, Methods.COMMAND_APPROVAL, {
+      itemId: "item_include_actions",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const noActions = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+        pollOptions: { includeActions: false },
+      },
+      manager
+    ) as { actions?: unknown[] };
+    expect(noActions.actions).toBeUndefined();
+
+    const withActions = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+      },
+      manager
+    ) as { actions?: unknown[] };
+    expect(withActions.actions?.length).toBe(1);
+  });
+
+  it("can omit terminal result with includeResult=false", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.TURN_COMPLETED, {
+      threadId,
+      turn: { id: "turn_done", status: "completed", output: "done" },
+    });
+
+    const noResult = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+        pollOptions: { includeResult: false },
+      },
+      manager
+    ) as { status: string; result?: unknown };
+    expect(noResult.status).toBe("idle");
+    expect(noResult.result).toBeUndefined();
+
+    const withResult = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+      },
+      manager
+    ) as { result?: unknown };
+    expect(withResult.result).toBeDefined();
+  });
+
+  it("returns compat warning when includeTools=true is requested", async () => {
+    const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
+    const poll = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        pollOptions: { includeTools: true },
+      },
+      manager
+    ) as { compatWarnings?: string[] };
+    expect(poll.compatWarnings?.some((w) => w.includes("includeTools"))).toBe(true);
+  });
+
   it("normalizes null and non-string approval reason to undefined", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
 
