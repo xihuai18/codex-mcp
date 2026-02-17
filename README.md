@@ -203,7 +203,7 @@ Query a running session for events, respond to approval requests, or answer user
 | `action`              | string   | Yes                               | `"poll"`, `"respond_approval"`, or `"respond_user_input"`                                                                                                                                        |
 | `sessionId`           | string   | Yes                               | Target session ID                                                                                                                                                                                |
 | `cursor`              | number   | No                                | Event cursor for incremental polling (`action="poll"`). For `respond_*`, codex-mcp applies monotonic cursor progression: `max(cursor, sessionLastCursor)`.                                   |
-| `maxEvents`           | number   | No                                | Max events per poll. Default: `200`                                                                                                                                                              |
+| `maxEvents`           | number   | No                                | Keep this small. `poll` default: `1` (minimum `1`; increase only for catch-up). `respond_*` default: `0` (recommended; compact ACK, no event replay).                                           |
 | `requestId`           | string   | For respond_approval/user_input   | Request ID from `actions[]`                                                                                                                                                                      |
 | `decision`            | string   | For respond_approval              | For command approvals: `"accept"`, `"acceptForSession"`, `"acceptWithExecpolicyAmendment"`, `"decline"`, `"cancel"`; for file changes: `"accept"`, `"acceptForSession"`, `"decline"`, `"cancel"` |
 | `execpolicyAmendment` | string[] | For acceptWithExecpolicyAmendment | Exec policy amendment list (required when `decision="acceptWithExecpolicyAmendment"`)                                                                                                            |
@@ -237,6 +237,11 @@ Query a running session for events, respond to approval requests, or answer user
 - `cursorResetTo`: when present, older events were evicted; restart from this cursor to avoid gaps
 - `maxEvents`: max events returned per call
 - If `cursor` is omitted, codex-mcp continues from that session's last consumed cursor.
+- `respond_*` defaults to compact ACK (`events: []`, no cursor advance) unless you explicitly pass `maxEvents`.
+- `poll` defaults to `maxEvents=1` to keep payloads small; increase temporarily (for example `10-20`) when you need to catch up faster.
+- If `poll` is called with `maxEvents=0`, codex-mcp treats it as `1` to avoid no-op polling loops.
+- For `respond_*`, prefer `maxEvents=0` instead of `1`: `0` keeps approval ACK minimal and avoids consuming/replaying stream events in the same call. Use `1-5` only when you explicitly need immediate events.
+- For `poll`, keep windows small to reduce payload spikes and context pressure.
 
 Event types include `output`, `progress`, `approval_request`, `approval_result`, `result`, `error`.
 Approvals/results/errors are pinned to reduce eviction risk.

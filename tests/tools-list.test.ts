@@ -44,6 +44,9 @@ describe("tools/list metadata", () => {
       const cursorSchema = codexCheckProps.cursor as Record<string, unknown> | undefined;
       expect(cursorSchema).toBeTruthy();
       expect(cursorSchema).not.toHaveProperty("default");
+      const maxEventsSchema = codexCheckProps.maxEvents as Record<string, unknown> | undefined;
+      expect(maxEventsSchema).toBeTruthy();
+      expect(maxEventsSchema).not.toHaveProperty("default");
     } finally {
       await server.close();
     }

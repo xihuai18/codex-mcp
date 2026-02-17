@@ -2,7 +2,14 @@
  * codex_check tool — poll events + respond to approvals/user input.
  */
 import type { SessionManager } from "../session/manager.js";
-import { ErrorCode, type CheckAction, type CheckResult } from "../types.js";
+import {
+  ErrorCode,
+  POLL_DEFAULT_MAX_EVENTS,
+  POLL_MIN_MAX_EVENTS,
+  RESPOND_DEFAULT_MAX_EVENTS,
+  type CheckAction,
+  type CheckResult,
+} from "../types.js";
 
 export interface CodexCheckParams {
   action: CheckAction;
@@ -24,8 +31,16 @@ export function executeCodexCheck(
   sessionManager: SessionManager
 ): CheckResult | { error: string; isError: true } {
   switch (args.action) {
-    case "poll":
-      return sessionManager.pollEvents(args.sessionId, args.cursor, args.maxEvents);
+    case "poll": {
+      // Default to a single incremental event for lightweight polling.
+      // Polling with maxEvents=0 can cause no-op loops in some clients, so
+      // enforce a minimum of 1 for poll.
+      const maxEvents =
+        typeof args.maxEvents === "number"
+          ? Math.max(POLL_MIN_MAX_EVENTS, args.maxEvents)
+          : POLL_DEFAULT_MAX_EVENTS;
+      return sessionManager.pollEvents(args.sessionId, args.cursor, maxEvents);
+    }
 
     case "respond_approval": {
       if (!args.requestId || !args.decision) {
@@ -43,9 +58,13 @@ export function executeCodexCheck(
         const message = err instanceof Error ? err.message : String(err);
         return { error: message, isError: true };
       }
-      // For respond_* actions, use monotonic cursor progression to avoid replay
-      // when some MCP hosts send stale/default cursor values.
-      return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, args.maxEvents);
+      // For respond_* actions:
+      // - use monotonic cursor progression to avoid replay when some MCP hosts
+      //   send stale/default cursor values.
+      // - default to compact ACK (maxEvents=0) to avoid returning large event
+      //   payloads on approval/user-input responses.
+      const maxEvents = args.maxEvents ?? RESPOND_DEFAULT_MAX_EVENTS;
+      return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, maxEvents);
     }
 
     case "respond_user_input": {
@@ -61,9 +80,13 @@ export function executeCodexCheck(
         const message = err instanceof Error ? err.message : String(err);
         return { error: message, isError: true };
       }
-      // For respond_* actions, use monotonic cursor progression to avoid replay
-      // when some MCP hosts send stale/default cursor values.
-      return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, args.maxEvents);
+      // For respond_* actions:
+      // - use monotonic cursor progression to avoid replay when some MCP hosts
+      //   send stale/default cursor values.
+      // - default to compact ACK (maxEvents=0) to avoid returning large event
+      //   payloads on approval/user-input responses.
+      const maxEvents = args.maxEvents ?? RESPOND_DEFAULT_MAX_EVENTS;
+      return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, maxEvents);
     }
 
     default:

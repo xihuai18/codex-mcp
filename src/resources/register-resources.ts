@@ -116,7 +116,10 @@ export function registerResources(
         [
           '- Sessions are async — poll `codex_check(action="poll")` until status is `idle`/`error`/`cancelled`.',
           "- Store `nextCursor` and pass it back to avoid replaying events.",
+          "- `poll` defaults to `maxEvents=1` for lightweight incremental updates. Increase temporarily (for example `10-20`) only when you need faster catch-up.",
+          "- If `poll` is sent with `maxEvents=0`, codex-mcp treats it as `1` to avoid no-op loops.",
           "- For `respond_approval` / `respond_user_input`, cursor handling is monotonic (`max(cursor, sessionLastCursor)`) to avoid stale replay.",
+          "- `respond_approval` / `respond_user_input` default to compact ACK (`maxEvents=0`) and this is usually better than `1`; use `1-5` only when you explicitly need immediate events in the same response.",
           "- If you omit `cursor`, codex-mcp continues from the session's last consumed cursor.",
           "- If `cursorResetTo` is present, cursor was stale; restart from `cursorResetTo`.",
           "- Approvals auto-decline after `approvalTimeoutMs`. Respond to `actions[]` promptly.",

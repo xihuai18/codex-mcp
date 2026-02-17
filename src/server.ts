@@ -19,7 +19,9 @@ import {
   CHECK_ACTIONS,
   ALL_DECISIONS,
   DEFAULT_APPROVAL_TIMEOUT_MS,
-  DEFAULT_MAX_EVENTS,
+  POLL_DEFAULT_MAX_EVENTS,
+  POLL_MIN_MAX_EVENTS,
+  RESPOND_DEFAULT_MAX_EVENTS,
   ErrorCode,
 } from "./types.js";
 import { redactPaths } from "./utils/redact.js";
@@ -84,18 +86,18 @@ export function createServer(serverCwd: string): McpServer {
     {
       title: "Start Codex Session",
       description:
-        "Start a Codex agent session. Returns sessionId — poll codex_check for results. Async subprocess, inherits ~/.codex/config.toml. approvalPolicy, sandbox, and effort are required — caller must set based on its permission level and task complexity.",
+        "Start a Codex session and return `sessionId` immediately. Poll `codex_check` for events/results. Uses local `~/.codex/config.toml` defaults unless overridden.",
       inputSchema: {
         prompt: z.string().describe("Task or question"),
         approvalPolicy: z
           .enum(APPROVAL_POLICIES)
-          .describe("Command approval policy — set based on caller's permission level"),
+          .describe("Approval policy (required)"),
         sandbox: z
           .enum(SANDBOX_MODES)
-          .describe("Sandbox mode — set based on caller's permission level"),
+          .describe("Sandbox mode (required)"),
         effort: z
           .enum(EFFORT_LEVELS)
-          .describe("Reasoning effort: low/medium for simple tasks, high/xhigh for complex ones"),
+          .describe("Reasoning effort (required)"),
         cwd: z.string().optional().describe("Working directory (default: server cwd)"),
         model: z.string().optional().describe("Model override (default: config.toml)"),
         profile: z.string().optional().describe("config.toml profile name"),
@@ -123,14 +125,17 @@ export function createServer(serverCwd: string): McpServer {
               .record(z.string(), z.unknown())
               .optional()
               .describe("JSON Schema for structured output"),
-            images: z.array(z.string()).optional().describe("Local image file paths"),
+            images: z
+              .array(z.string())
+              .optional()
+              .describe("Local image file paths on the server host"),
             approvalTimeoutMs: z
               .number()
               .int()
               .positive()
               .default(DEFAULT_APPROVAL_TIMEOUT_MS)
               .optional()
-              .describe("Auto-decline timeout in ms"),
+              .describe(`Auto-decline timeout in ms (default: ${DEFAULT_APPROVAL_TIMEOUT_MS})`),
           })
           .optional()
           .describe("Low-frequency settings"),
@@ -170,7 +175,7 @@ export function createServer(serverCwd: string): McpServer {
     {
       title: "Continue Codex Session",
       description:
-        "Follow-up to existing session. Retains full context. Returns immediately — poll codex_check. Overrides apply to this and subsequent turns.",
+        "Continue an existing session with full context. Returns immediately; poll `codex_check` for updates.",
       inputSchema: {
         sessionId: z.string().describe("Session ID from codex tool"),
         prompt: z.string().describe("Follow-up message"),
@@ -296,11 +301,11 @@ export function createServer(serverCwd: string): McpServer {
       title: "Poll & Respond",
       description: `Poll session for events or respond to approval/input requests.
 
-poll: Events since cursor (output, progress, approvals, errors, result). Returns nextCursor + actions[] if awaiting response.
+poll: Incremental events since cursor. Default maxEvents=${POLL_DEFAULT_MAX_EVENTS}.
 
-respond_approval: Respond to approval. Pass requestId + decision.
+respond_approval: Submit approval decision. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
 
-respond_user_input: Answer input request. Pass requestId + answers.`,
+respond_user_input: Submit user-input answers. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).`,
       inputSchema: {
         action: z.enum(CHECK_ACTIONS),
         sessionId: z.string().describe("Target session ID"),
@@ -309,21 +314,22 @@ respond_user_input: Answer input request. Pass requestId + answers.`,
           .int()
           .nonnegative()
           .optional()
-          .describe("Event offset; omit to continue from session's last consumed cursor"),
+          .describe("Event cursor (default: continue from last consumed cursor)"),
         maxEvents: z
           .number()
           .int()
-          .positive()
-          .default(DEFAULT_MAX_EVENTS)
+          .nonnegative()
           .optional()
-          .describe("Max events per poll"),
+          .describe(
+            `Max events to return. Default: poll=${POLL_DEFAULT_MAX_EVENTS} (minimum ${POLL_MIN_MAX_EVENTS}), respond_*=${RESPOND_DEFAULT_MAX_EVENTS}. Keep small to avoid large payloads.`
+          ),
         // respond_approval
         requestId: z.string().optional().describe("Request ID from actions[]"),
         decision: z
           .enum(ALL_DECISIONS)
           .optional()
           .describe(
-            "Approval decision: accept / acceptForSession / acceptWithExecpolicyAmendment / decline / cancel"
+            "Approval decision. Command: accept/acceptForSession/acceptWithExecpolicyAmendment/decline/cancel. File change: accept/acceptForSession/decline/cancel."
           ),
         execpolicyAmendment: z
           .array(z.string())

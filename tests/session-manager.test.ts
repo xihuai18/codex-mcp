@@ -82,6 +82,72 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(threadId).toBeDefined();
   });
 
+  it("defaults poll to one incremental event when maxEvents is omitted", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_a",
+      delta: "A",
+    });
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_b",
+      delta: "B",
+    });
+
+    const poll1 = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+      },
+      manager
+    );
+    expect((poll1 as { isError?: boolean }).isError).not.toBe(true);
+    const r1 = poll1 as { events: Array<{ id: number }>; nextCursor: number };
+    expect(r1.events).toHaveLength(1);
+    expect(r1.nextCursor).toBe(r1.events[0].id + 1);
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+      },
+      manager
+    );
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    const r2 = poll2 as { events: Array<{ id: number }> };
+    expect(r2.events).toHaveLength(1);
+  });
+
+  it("treats poll maxEvents=0 as 1 to avoid no-op polling loops", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_zero_guard",
+      delta: "Z",
+    });
+
+    const poll = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 0,
+      },
+      manager
+    );
+    expect((poll as { isError?: boolean }).isError).not.toBe(true);
+    const result = poll as { events: Array<{ id: number; type: string }>; nextCursor: number };
+    expect(result.events).toHaveLength(1);
+    expect(result.events[0].type).toBe("output");
+    expect(result.nextCursor).toBe(result.events[0].id + 1);
+  });
+
   it("responds to command approval and clears pending request", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(1, Methods.COMMAND_APPROVAL, {
@@ -148,10 +214,11 @@ describe("SessionManager protocol compatibility + approvals", () => {
 
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
     const result = poll2 as { events: Array<{ id: number; type: string }>; nextCursor: number };
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0].type).toBe("approval_result");
-    expect(result.events[0].id).toBeGreaterThanOrEqual(poll1.nextCursor);
-    expect(result.nextCursor).toBe(result.events[0].id + 1);
+    expect(result.events).toHaveLength(0);
+    expect(result.nextCursor).toBe(poll1.nextCursor);
+
+    const poll3 = manager.pollEvents(sessionId);
+    expect(poll3.events.some((event) => event.type === "approval_result")).toBe(true);
   });
 
   it("ignores stale explicit cursor in respond_approval and continues incrementally", async () => {
@@ -186,10 +253,42 @@ describe("SessionManager protocol compatibility + approvals", () => {
     );
 
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    const result = poll2 as { events: Array<{ id: number; type: string }>; nextCursor: number };
+    expect(result.events).toHaveLength(0);
+    expect(result.nextCursor).toBe(poll1.nextCursor);
+
+    const poll3 = manager.pollEvents(sessionId);
+    expect(poll3.events.some((event) => event.type === "approval_result")).toBe(true);
+  });
+
+  it("returns events for respond_approval when maxEvents is explicitly provided", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(30, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_explicit",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_approval",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+        maxEvents: 10,
+      },
+      manager
+    );
+
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
     const result = poll2 as { events: Array<{ id: number; type: string }> };
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0].type).toBe("approval_result");
-    expect(result.events[0].id).toBeGreaterThanOrEqual(poll1.nextCursor);
+    expect(result.events.some((event) => event.type === "approval_result")).toBe(true);
   });
 
   it("responds to user input request and clears pending request", async () => {
@@ -253,10 +352,12 @@ describe("SessionManager protocol compatibility + approvals", () => {
     );
 
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
-    const result = poll2 as { events: Array<{ id: number; type: string }> };
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0].type).toBe("approval_result");
-    expect(result.events[0].id).toBeGreaterThanOrEqual(poll1.nextCursor);
+    const result = poll2 as { events: Array<{ id: number; type: string }>; nextCursor: number };
+    expect(result.events).toHaveLength(0);
+    expect(result.nextCursor).toBe(poll1.nextCursor);
+
+    const poll3 = manager.pollEvents(sessionId);
+    expect(poll3.events.some((event) => event.type === "approval_result")).toBe(true);
   });
 
   it("ignores stale explicit cursor in respond_user_input and continues incrementally", async () => {
@@ -290,10 +391,41 @@ describe("SessionManager protocol compatibility + approvals", () => {
     );
 
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
+    const result = poll2 as { events: Array<{ id: number; type: string }>; nextCursor: number };
+    expect(result.events).toHaveLength(0);
+    expect(result.nextCursor).toBe(poll1.nextCursor);
+
+    const poll3 = manager.pollEvents(sessionId);
+    expect(poll3.events.some((event) => event.type === "approval_result")).toBe(true);
+  });
+
+  it("returns events for respond_user_input when maxEvents is explicitly provided", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(31, Methods.USER_INPUT_REQUEST, {
+      itemId: "item_ui_explicit",
+      threadId,
+      turnId: "turn_1",
+      questions: [{ questionId: "q1", question: "Pick one" }],
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const poll2 = executeCodexCheck(
+      {
+        action: "respond_user_input",
+        sessionId,
+        requestId: requestId!,
+        answers: { q1: { answers: ["A"] } },
+        maxEvents: 10,
+      },
+      manager
+    );
+
+    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
     const result = poll2 as { events: Array<{ id: number; type: string }> };
-    expect(result.events).toHaveLength(1);
-    expect(result.events[0].type).toBe("approval_result");
-    expect(result.events[0].id).toBeGreaterThanOrEqual(poll1.nextCursor);
+    expect(result.events.some((event) => event.type === "approval_result")).toBe(true);
   });
 
   it("normalizes null and non-string approval reason to undefined", async () => {

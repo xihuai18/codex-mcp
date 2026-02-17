@@ -244,6 +244,9 @@ After `codex` or `codex_reply`:
 2. Persist `nextCursor` and pass it back next poll.
 3. If `cursorResetTo` appears, your cursor is stale; continue from `cursorResetTo`.
 4. Terminal statuses are `idle`, `error`, `cancelled`.
+5. `respond_approval` / `respond_user_input` may return compact ACK by default (`events` can be empty). Continue polling for streamed events.
+6. Keep `maxEvents` small: `poll` defaults to `1` (increase to `10-20` only for faster catch-up); for `respond_*`, prefer `0` (usually better than `1`) and use `1-5` only when immediate events are required.
+7. If `poll` is sent with `maxEvents=0`, codex-mcp treats it as `1` to avoid no-op polling loops.
 
 Observed default polling cadence in implementation:
 

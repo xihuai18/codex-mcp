@@ -208,6 +208,16 @@ export enum ErrorCode {
 // ── Defaults ───────────────────────────────────────────────────────
 
 export const DEFAULT_POLL_INTERVAL = 3000;
+/** Public codex_check default for action="poll" when maxEvents is omitted. */
+export const POLL_DEFAULT_MAX_EVENTS = 1;
+/** Public codex_check lower bound for action="poll" to avoid no-op loops. */
+export const POLL_MIN_MAX_EVENTS = 1;
+/** Public codex_check default for action="respond_*" when maxEvents is omitted. */
+export const RESPOND_DEFAULT_MAX_EVENTS = 0;
+/**
+ * Internal SessionManager fallback for direct poll helpers.
+ * Not used as codex_check external default.
+ */
 export const DEFAULT_MAX_EVENTS = 200;
 export const DEFAULT_EVENT_BUFFER_SIZE = 1000;
 export const DEFAULT_EVENT_BUFFER_HARD_SIZE = 2000;
