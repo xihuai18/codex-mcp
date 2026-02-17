@@ -23,7 +23,7 @@ When you execute this plan as an LLM test operator:
 
 Minimum pass target:
 
-1. The server exposes 4 tools and 6 resources correctly.
+1. The server exposes 4 tools and up to 6 resources correctly (minimum 3: `server-info`, `config`, `gotchas`).
 2. `codex` and `codex_reply` are asynchronous (return immediately, then progress via polling).
 3. Approval flow works (`respond_permission`, or deprecated `respond_approval`) and session state changes correctly.
 4. A real coding task closes the loop: test fails -> agent fixes -> test passes.
@@ -52,9 +52,9 @@ Recommended:
 
 Windows-specific:
 
-1. Clean your PowerShell profile or use `pwsh -NoProfile` to avoid stdout noise (oh-my-posh migration prompts, PSReadLine errors). Profile output pollutes both the MCP handshake and all subsequent agent command turns, wasting tokens and context window.
-2. Paths with parentheses (e.g., `C:\Program Files (x86)`) can cause shell parsing failures. Prefer paths without special characters for `cwd`.
-3. Codex defaults to PowerShell as the shell on Windows. If bash-style commands fail (e.g., `ls -la`), this is expected. The agent typically self-corrects after 1-2 retries.
+1. **CRITICAL: Clean your PowerShell profile before testing.** Use `pwsh -NoProfile` or temporarily rename/empty your `$PROFILE` file. If your profile loads modules like oh-my-posh or custom PSReadLine configurations, their stdout output leaks into **every** `codex app-server` command execution — not just the MCP handshake. In practice this means ~15 lines of noise per command turn, causing significant token waste and context window pollution. The agent will self-correct after failed commands, but the first round of commands (typically 3-4) will all fail, wasting substantial tokens before recovery. This is not a minor inconvenience — it is the single largest source of wasted tokens in Windows E2E testing.
+2. Paths with parentheses (e.g., `C:\Program Files (x86)`) can cause shell parsing failures. Prefer paths without special characters for `cwd`. **Note:** This also affects codex internally — on many Windows installations, codex defaults to `C:\Program Files (x86)\PowerShell\7\pwsh.exe` as its shell, which itself contains parentheses. This is a known codex-side issue that users cannot work around via `cwd` alone. If you observe shell parsing errors unrelated to your workspace path, this may be the cause.
+3. Codex defaults to PowerShell as the shell on Windows. If bash-style commands fail (e.g., `ls -la`), this is expected. The agent will self-correct, but expect the first 1-4 commands to fail before it adapts to PowerShell syntax. Budget extra tokens and polling rounds for this Windows-specific warm-up.
 
 ## 2.1 Start codex-mcp (Required Before TC0)
 
@@ -107,22 +107,25 @@ Expected tool names:
 
 ## 3.2 Resource Discovery
 
-Run `resources/list`, then read:
+Run `resources/list`, then read each resource that appears.
 
-1. `codex-mcp:///server-info`
-2. `codex-mcp:///compat-report`
-3. `codex-mcp:///config`
-4. `codex-mcp:///gotchas`
-5. `codex-mcp:///quickstart`
-6. `codex-mcp:///errors`
+The server source code registers 6 resources:
+
+1. `codex-mcp:///server-info` — JSON metadata (server version, platform, capabilities)
+2. `codex-mcp:///compat-report` — JSON metadata (feature flags, compatibility warnings)
+3. `codex-mcp:///config` — markdown (parameter guide and config.toml mapping)
+4. `codex-mcp:///gotchas` — markdown (practical limits and common issues)
+5. `codex-mcp:///quickstart` — markdown (minimal end-to-end workflow)
+6. `codex-mcp:///errors` — markdown (error code reference and recovery hints)
 
 Expected:
 
-1. All 6 exist.
-2. `server-info` and `compat-report` return JSON metadata.
-3. `config` / `gotchas` / `quickstart` / `errors` return markdown text.
+1. Verify the count returned by `resources/list`. If fewer than 6 appear, you may be running an older server build. Run `npm run build` (if testing from source) or update the package to ensure all resources are registered.
+2. The minimum required set is: `server-info`, `config`, `gotchas` (these 3 have been present since early versions).
+3. `compat-report`, `quickstart`, `errors` were added later. If missing, note the gap in your report but do not block on it — proceed to TC1.
+4. JSON resources should parse cleanly; markdown resources should return non-empty text.
 
-Stop and troubleshoot if this gate fails.
+Stop and troubleshoot only if `resources/list` itself fails or returns 0 resources.
 
 ## 4. Build a Minimal Repro Workspace (No `e2e/` Dependency)
 
@@ -276,13 +279,26 @@ Observed default polling cadence in implementation:
 3. During long reasoning phases, no new events for 30-60+ seconds can still be normal. Keep polling with patience instead of treating silence as failure.
 4. If your client supports adaptive backoff, increase interval when no events arrive, then reset when new events appear.
 
+MCP client-specific note: In MCP clients (e.g., Claude Code, Cursor), each poll is a full tool call round-trip with LLM overhead, so actual polling intervals are much longer than the raw millisecond values above. To compensate, use `maxEvents=10` or `maxEvents=20` to fetch more events per poll. This reduces the total number of tool calls needed and is strongly recommended for MCP client environments.
+
 ## 5.3 Approval Rules
 
 When `actions[]` is present:
 
-1. Approval actions use `respond_permission` (deprecated alias `respond_approval` is still accepted).
+1. Approval actions use `respond_permission` (the MCP tool schema also accepts the deprecated alias `respond_approval` — both work identically). Use whichever your client's tool schema exposes; if both appear, prefer `respond_permission`.
 2. User-input actions use `respond_user_input`.
 3. Do not guess request IDs; always copy the exact `requestId`.
+
+Auto-approval behavior by policy:
+
+Not all commands trigger an approval request. The codex CLI applies its own safety classification before surfacing approvals to the MCP layer:
+
+- `untrusted`: Read-only commands (e.g., `ls`, `cat`, `dir`, `type`) are typically auto-approved by codex internally and will **not** generate an `actions[]` entry. Commands with side effects (e.g., `npm test`, `node`, write operations) require explicit approval.
+- `on-request`: Similar to `untrusted` but with a broader set of auto-approved commands. Most read operations pass through; write operations and unknown commands require approval.
+- `on-failure`: Commands are auto-approved on first attempt; approval is only requested if a command fails.
+- `never`: All commands are auto-approved. No `actions[]` will appear for command approvals (file-change approvals may still appear depending on sandbox mode).
+
+If you expect an approval request but none appears, the command was likely auto-approved by codex's internal policy. This is normal behavior, not a bug.
 
 Decision constraints:
 
@@ -310,12 +326,12 @@ Steps:
 
 1. Call `tools/list`.
 2. Call `resources/list`.
-3. Read the 6 resources in section 3.2.
+3. Read each resource returned in section 3.2.
 
 Pass criteria:
 
 1. 4 tools present.
-2. 6 resources present and readable.
+2. At least 3 resources present and readable (`server-info`, `config`, `gotchas`). Up to 6 if running latest build.
 3. No transport-level JSON-RPC corruption.
 
 ## TC1: Async Start + Poll (Read-Only Path)
@@ -376,7 +392,9 @@ Pass criteria:
 
 ## TC3: Real Bug-Fix Closed Loop
 
-Use the same session as TC2, continue polling and approving as needed.
+TC3 is the acceptance criteria for the TC2 session, not an independent test step. Since TC2's prompt already includes "fix the bug, rerun tests, then summarize changes", TC3 validates the end-to-end outcome of that same session.
+
+Continue polling and approving the TC2 session until it reaches `idle`.
 
 Pass criteria:
 
