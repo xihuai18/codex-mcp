@@ -57,18 +57,23 @@ Add to your MCP client config (e.g. Claude Desktop, Cursor, etc.):
 }
 ```
 
-### OpenAI Codex CLI
+### Claude Code
 
 ```bash
-codex mcp add codex-mcp -- npx -y @leo000001/codex-mcp
+claude mcp add codex-mcp -- npx -y @leo000001/codex-mcp
 ```
 
-Or add to `~/.codex/config.toml`:
+Or add to `~/.claude/settings.json`:
 
-```toml
-[mcp_servers.codex-mcp]
-command = "npx"
-args = ["-y", "@leo000001/codex-mcp"]
+```json
+{
+  "mcpServers": {
+    "codex-mcp": {
+      "command": "npx",
+      "args": ["-y", "@leo000001/codex-mcp"]
+    }
+  }
+}
 ```
 
 ## STDIO Guard Modes
@@ -95,16 +100,16 @@ $env:CODEX_MCP_STDIO_MODE = "strict"; npx -y @leo000001/codex-mcp
 
 Start a Codex agent session asynchronously. Returns immediately with `sessionId`.
 
-| Parameter        | Type   | Required | Description                                                                                                            |
-| ---------------- | ------ | -------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `prompt`         | string | Yes      | Task or question for the Codex agent                                                                                   |
-| `approvalPolicy` | string | Yes      | Approval policy: `untrusted`, `on-failure`, `on-request`, `never` — caller must set based on its own permission level  |
-| `sandbox`        | string | Yes      | Sandbox mode: `read-only`, `workspace-write`, `danger-full-access` — caller must set based on its own permission level |
+| Parameter        | Type   | Required | Description                                                                                                                       |
+| ---------------- | ------ | -------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| `prompt`         | string | Yes      | Task or question for the Codex agent                                                                                              |
+| `approvalPolicy` | string | Yes      | Approval policy: `untrusted`, `on-failure`, `on-request`, `never` — caller must set based on its own permission level             |
+| `sandbox`        | string | Yes      | Sandbox mode: `read-only`, `workspace-write`, `danger-full-access` — caller must set based on its own permission level            |
 | `effort`         | string | No       | Reasoning effort: `none`, `minimal`, `low`, `medium`, `high`, `xhigh`. Default: `low`; increase/decrease based on task complexity |
-| `cwd`            | string | No       | Working directory. Default: server cwd                                                                                 |
-| `model`          | string | No       | Model override. Default: from `~/.codex/config.toml`                                                                   |
-| `profile`        | string | No       | `config.toml` profile name (passed as `codex app-server -p`)                                                           |
-| `advanced`       | object | No       | Low-frequency options (see below)                                                                                      |
+| `cwd`            | string | No       | Working directory. Default: server cwd                                                                                            |
+| `model`          | string | No       | Model override. Default: from `~/.codex/config.toml`                                                                              |
+| `profile`        | string | No       | `config.toml` profile name (passed as `codex app-server -p`)                                                                      |
+| `advanced`       | object | No       | Low-frequency options (see below)                                                                                                 |
 
 <details>
 <summary><code>advanced</code> object parameters (9 low-frequency parameters)</summary>
@@ -203,12 +208,12 @@ Query a running session for events, respond to approval requests, or answer user
 
 | Parameter             | Type     | Required                          | Description                                                                                                                                                                                      |
 | --------------------- | -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `action`              | string   | Yes                               | `"poll"`, `"respond_permission"`, `"respond_approval"` (deprecated alias), or `"respond_user_input"`                                                                                            |
+| `action`              | string   | Yes                               | `"poll"`, `"respond_permission"`, `"respond_approval"` (deprecated alias), or `"respond_user_input"`                                                                                             |
 | `sessionId`           | string   | Yes                               | Target session ID                                                                                                                                                                                |
-| `cursor`              | number   | No                                | Event cursor for incremental polling (`action="poll"`). For `respond_*`, codex-mcp applies monotonic cursor progression: `max(cursor, sessionLastCursor)`.                                   |
-| `maxEvents`           | number   | No                                | Keep this small. `poll` default: `1` (minimum `1`; increase only for catch-up). `respond_*` default: `0` (recommended; compact ACK, no event replay).                                           |
-| `responseMode`        | string   | No                                | Response shaping mode: `minimal` (default), `delta_compact`, `full`                                                                                                                             |
-| `pollOptions`         | object   | No                                | Optional controls: `includeEvents` (default `true`), `includeActions` (default `true`), `includeResult` (default `true`), `maxBytes` (default unlimited)                                       |
+| `cursor`              | number   | No                                | Event cursor for incremental polling (`action="poll"`). For `respond_*`, codex-mcp applies monotonic cursor progression: `max(cursor, sessionLastCursor)`.                                       |
+| `maxEvents`           | number   | No                                | Keep this small. `poll` default: `1` (minimum `1`; increase only for catch-up). `respond_*` default: `0` (recommended; compact ACK, no event replay).                                            |
+| `responseMode`        | string   | No                                | Response shaping mode: `minimal` (default), `delta_compact`, `full`                                                                                                                              |
+| `pollOptions`         | object   | No                                | Optional controls: `includeEvents` (default `true`), `includeActions` (default `true`), `includeResult` (default `true`), `maxBytes` (default unlimited)                                         |
 | `requestId`           | string   | For respond_permission/user_input | Request ID from `actions[]`                                                                                                                                                                      |
 | `decision`            | string   | For respond_permission            | For command approvals: `"accept"`, `"acceptForSession"`, `"acceptWithExecpolicyAmendment"`, `"decline"`, `"cancel"`; for file changes: `"accept"`, `"acceptForSession"`, `"decline"`, `"cancel"` |
 | `execpolicyAmendment` | string[] | For acceptWithExecpolicyAmendment | Exec policy amendment list (required when `decision="acceptWithExecpolicyAmendment"`)                                                                                                            |
