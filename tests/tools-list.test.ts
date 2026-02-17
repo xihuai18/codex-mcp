@@ -30,6 +30,22 @@ describe("tools/list metadata", () => {
         expect(outputSchema).toHaveProperty("type", "object");
       }
 
+      const codex = byName.get("codex") as { description?: string };
+      expect(codex.description).toContain("pollInterval");
+      expect(codex.description).toContain("asynchronously");
+
+      const codexReplyDesc = byName.get("codex_reply") as { description?: string };
+      expect(codexReplyDesc.description).toContain("idle");
+      expect(codexReplyDesc.description).toContain("SESSION_BUSY");
+
+      const codexSessionDesc = byName.get("codex_session") as { description?: string };
+      expect(codexSessionDesc.description).toContain("includeSensitive defaults to false");
+      expect(codexSessionDesc.description).toContain("source remains unchanged");
+
+      const codexCheckDesc = byName.get("codex_check") as { description?: string };
+      expect(codexCheckDesc.description).toContain("Default maxEvents=1");
+      expect(codexCheckDesc.description).toContain("cursorResetTo");
+
       const codexReply = byName.get("codex_reply") as {
         inputSchema?: { properties?: Record<string, unknown> };
       };

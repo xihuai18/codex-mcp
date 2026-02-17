@@ -60,7 +60,7 @@ export function createServer(serverCwd: string): McpServer {
   });
 
   // Read-only MCP resources (helpful docs / metadata)
-  registerResources(server, { version: SERVER_VERSION });
+  registerResources(server, { version: SERVER_VERSION, sessionManager });
 
   const publicSessionInfoSchema = z.object({
     sessionId: z.string(),
@@ -95,52 +95,53 @@ export function createServer(serverCwd: string): McpServer {
     {
       title: "Start Codex Session",
       description:
-        "Start a Codex session and return `sessionId` immediately. Poll `codex_check` for events/results. Uses local `~/.codex/config.toml` defaults unless overridden.",
+        "Start session asynchronously. Returns `{ sessionId, threadId, status, pollInterval }`. Poll `codex_check` for updates.",
       inputSchema: {
         prompt: z.string().describe("Task or question"),
         approvalPolicy: z
           .enum(APPROVAL_POLICIES)
-          .describe("Approval policy (required)"),
+          .describe("Required enum: untrusted/on-failure/on-request/never."),
         sandbox: z
           .enum(SANDBOX_MODES)
-          .describe("Sandbox mode (required)"),
+          .describe("Required enum: read-only/workspace-write/danger-full-access."),
         effort: z
           .enum(EFFORT_LEVELS)
           .default(DEFAULT_EFFORT_LEVEL)
-          .describe(
-            "Reasoning effort (default: low). Increase for complex tasks and lower for simple tasks."
-          ),
-        cwd: z.string().optional().describe("Working directory (default: server cwd)"),
+          .describe("Reasoning effort (default: low)."),
+        cwd: z
+          .string()
+          .optional()
+          .describe("Working directory (default: server cwd)."),
         model: z.string().optional().describe("Model override (default: config.toml)"),
-        profile: z.string().optional().describe("config.toml profile name"),
+        profile: z.string().optional().describe("Profile name (default: CLI default profile)."),
         advanced: z
           .object({
-            baseInstructions: z.string().optional().describe("Replace default system instructions"),
+            baseInstructions: z.string().optional().describe("Replace system instructions."),
             developerInstructions: z
               .string()
               .optional()
-              .describe("Additional developer instructions"),
+              .describe("Extra developer instructions."),
             personality: z
               .enum(PERSONALITIES)
               .optional()
-              .describe("Personality (default: config.toml)"),
+              .describe("Personality (default: config.toml)."),
             summary: z
               .enum(SUMMARY_MODES)
               .optional()
-              .describe("Summary mode (default: config.toml)"),
+              .describe("Summary mode (default: config.toml)."),
             config: z
               .record(z.string(), z.unknown())
               .optional()
-              .describe("Override config.toml values"),
-            ephemeral: z.boolean().optional().describe("Don't persist thread (default: false)"),
+              .describe("Override config values."),
+            ephemeral: z.boolean().optional().describe("Do not persist thread (default: false)."),
             outputSchema: z
               .record(z.string(), z.unknown())
               .optional()
-              .describe("JSON Schema for structured output"),
+              .describe("Structured output schema."),
             images: z
               .array(z.string())
               .optional()
-              .describe("Local image file paths on the server host"),
+              .describe("Local image paths."),
             approvalTimeoutMs: z
               .number()
               .int()
@@ -150,7 +151,7 @@ export function createServer(serverCwd: string): McpServer {
               .describe(`Auto-decline timeout in ms (default: ${DEFAULT_APPROVAL_TIMEOUT_MS})`),
           })
           .optional()
-          .describe("Low-frequency settings"),
+          .describe("Advanced settings."),
       },
       outputSchema: sessionStartOutputShape,
       annotations: {
@@ -187,21 +188,27 @@ export function createServer(serverCwd: string): McpServer {
     {
       title: "Continue Codex Session",
       description:
-        "Continue an existing session with full context. Returns immediately; poll `codex_check` for updates.",
+        "Continue existing session. Allowed in `idle`/`error`; otherwise `SESSION_BUSY`. Omitted override fields keep current session values. Returns immediately.",
       inputSchema: {
         sessionId: z.string().describe("Session ID from codex tool"),
         prompt: z.string().describe("Follow-up message"),
-        model: z.string().optional().describe("Override model"),
-        approvalPolicy: z.enum(APPROVAL_POLICIES).optional().describe("Override approval policy"),
-        effort: z.enum(EFFORT_LEVELS).optional().describe("Override effort"),
-        summary: z.enum(SUMMARY_MODES).optional().describe("Override summary"),
-        personality: z.enum(PERSONALITIES).optional().describe("Override personality"),
-        sandbox: z.enum(SANDBOX_MODES).optional().describe("Override sandbox"),
-        cwd: z.string().optional().describe("Override cwd"),
+        model: z.string().optional().describe("Override model."),
+        approvalPolicy: z
+          .enum(APPROVAL_POLICIES)
+          .optional()
+          .describe("Override approval policy."),
+        effort: z.enum(EFFORT_LEVELS).optional().describe("Override effort."),
+        summary: z.enum(SUMMARY_MODES).optional().describe("Override summary."),
+        personality: z
+          .enum(PERSONALITIES)
+          .optional()
+          .describe("Override personality."),
+        sandbox: z.enum(SANDBOX_MODES).optional().describe("Override sandbox."),
+        cwd: z.string().optional().describe("Override cwd."),
         outputSchema: z
           .record(z.string(), z.unknown())
           .optional()
-          .describe("JSON Schema for structured output"),
+          .describe("Structured output schema override (top-level in codex_reply)."),
       },
       outputSchema: sessionStartOutputShape,
       annotations: {
@@ -237,13 +244,13 @@ export function createServer(serverCwd: string): McpServer {
     "codex_session",
     {
       title: "Manage Sessions",
-      description: `Manage sessions: list, inspect, interrupt, fork, or cancel.
+      description: `Session actions: list, get, cancel, interrupt, fork.
 
-- action="list": All sessions with status/settings.
-- action="get": Session details. includeSensitive=true for cwd/config.
-- action="cancel": Stop session immediately.
-- action="interrupt": Interrupt current turn, keep session alive.
-- action="fork": Branch new session from current thread state.`,
+- list: sessions in memory.
+- get: details. includeSensitive defaults to false; true adds threadId/cwd/profile/config.
+- cancel: terminal.
+- interrupt: stop current turn.
+- fork: clone current thread into a new session; source remains unchanged.`,
       inputSchema: {
         action: z.enum(SESSION_ACTIONS),
         sessionId: z.string().optional().describe("Required for get/cancel/interrupt/fork"),
@@ -251,7 +258,7 @@ export function createServer(serverCwd: string): McpServer {
           .boolean()
           .default(false)
           .optional()
-          .describe("Include cwd/config in get"),
+          .describe("Include cwd/config/threadId/profile in get (default: false)"),
       },
       outputSchema: {
         sessions: z.array(publicSessionInfoSchema).optional(),
@@ -313,11 +320,14 @@ export function createServer(serverCwd: string): McpServer {
       title: "Poll & Respond",
       description: `Poll session for events or respond to approval/input requests.
 
-poll: Incremental events since cursor. Default maxEvents=${POLL_DEFAULT_MAX_EVENTS}.
+poll: events since cursor. Default maxEvents=${POLL_DEFAULT_MAX_EVENTS}.
 
-respond_approval: Submit approval decision. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
+respond_approval: approval decision. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
 
-respond_user_input: Submit user-input answers. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).`,
+respond_user_input: user-input answers. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
+
+events[].type is coarse-grained; details are in events[].data.method.
+cursor omitted => use session last cursor. cursorResetTo => reset and continue.`,
       inputSchema: {
         action: z.enum(CHECK_ACTIONS),
         sessionId: z.string().describe("Target session ID"),
@@ -326,23 +336,21 @@ respond_user_input: Submit user-input answers. Default maxEvents=${RESPOND_DEFAU
           .int()
           .nonnegative()
           .optional()
-          .describe("Event cursor (default: continue from last consumed cursor)"),
+          .describe("Event cursor (default: session last consumed cursor)."),
         maxEvents: z
           .number()
           .int()
           .nonnegative()
           .optional()
           .describe(
-            `Max events to return. Default: poll=${POLL_DEFAULT_MAX_EVENTS} (minimum ${POLL_MIN_MAX_EVENTS}), respond_*=${RESPOND_DEFAULT_MAX_EVENTS}. Keep small to avoid large payloads.`
+            `Max events. Default: poll=${POLL_DEFAULT_MAX_EVENTS} (min ${POLL_MIN_MAX_EVENTS}), respond_*=${RESPOND_DEFAULT_MAX_EVENTS}.`
           ),
         // respond_approval
         requestId: z.string().optional().describe("Request ID from actions[]"),
         decision: z
           .enum(ALL_DECISIONS)
           .optional()
-          .describe(
-            "Approval decision. Command: accept/acceptForSession/acceptWithExecpolicyAmendment/decline/cancel. File change: accept/acceptForSession/decline/cancel."
-          ),
+          .describe("Approval decision. acceptWithExecpolicyAmendment requires execpolicyAmendment."),
         execpolicyAmendment: z
           .array(z.string())
           .optional()
@@ -357,7 +365,7 @@ respond_user_input: Submit user-input answers. Default maxEvents=${RESPOND_DEFAU
             })
           )
           .optional()
-          .describe("questionId → answers map"),
+          .describe("questionId -> answers map (questionId from actions[] user_input request)."),
       },
       outputSchema: {
         sessionId: z.string().optional(),

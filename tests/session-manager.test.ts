@@ -177,6 +177,33 @@ describe("SessionManager protocol compatibility + approvals", () => {
     }
   });
 
+  it("reports active session count for running/idle/waiting states", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    expect(manager.getActiveSessionCount()).toBe(1);
+
+    client.emitServerRequest(11, Methods.COMMAND_APPROVAL, {
+      itemId: "item_active",
+      threadId,
+      turnId: "turn_active",
+      command: "echo hi",
+      cwd: workspace,
+    });
+    expect(manager.getActiveSessionCount()).toBe(1);
+
+    await manager.cancelSession(sessionId);
+    expect(manager.getActiveSessionCount()).toBe(0);
+  });
+
+  it("exposes best-effort observed default model from recent sessions", async () => {
+    expect(manager.getObservedDefaultModel()).toBeNull();
+
+    await manager.createSession("hi", workspace, { model: "o4-mini" }, "medium");
+    expect(manager.getObservedDefaultModel()).toBe("o4-mini");
+
+    await manager.createSession("hello", workspace, { model: "o4" }, "medium");
+    expect(manager.getObservedDefaultModel()).toBe("o4");
+  });
+
   it("defaults poll to one incremental event when maxEvents is omitted", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
 

@@ -288,6 +288,47 @@ export class SessionManager {
     return Array.from(this.sessions.values()).map(toPublicInfo);
   }
 
+  /**
+   * Count currently active sessions for lightweight runtime observability.
+   * "Active" here means the session can still be interacted with.
+   */
+  getActiveSessionCount(): number {
+    let count = 0;
+    for (const session of this.sessions.values()) {
+      if (
+        session.status === "running" ||
+        session.status === "waiting_approval" ||
+        session.status === "idle"
+      ) {
+        count++;
+      }
+    }
+    return count;
+  }
+
+  /**
+   * Best-effort effective default model observed from recent sessions.
+   * Returns null when no model can be inferred from in-memory state.
+   */
+  getObservedDefaultModel(): string | null {
+    let latestModel: string | null = null;
+    let latestTs = Number.NEGATIVE_INFINITY;
+
+    for (const session of this.sessions.values()) {
+      if (session.status === "cancelled") continue;
+      if (typeof session.model !== "string" || session.model.length === 0) continue;
+
+      const ts = Date.parse(session.lastActiveAt);
+      const comparableTs = Number.isFinite(ts) ? ts : Number.NEGATIVE_INFINITY;
+      if (comparableTs >= latestTs) {
+        latestTs = comparableTs;
+        latestModel = session.model;
+      }
+    }
+
+    return latestModel;
+  }
+
   getSession(
     sessionId: string,
     includeSensitive = false

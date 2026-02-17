@@ -1,5 +1,20 @@
+import { spawnSync } from "child_process";
 import type { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import type { ReadResourceResult } from "@modelcontextprotocol/sdk/types.js";
+import type { SessionManager } from "../session/manager.js";
+import {
+  APPROVAL_POLICIES,
+  SANDBOX_MODES,
+  EFFORT_LEVELS,
+  DEFAULT_APPROVAL_TIMEOUT_MS,
+  POLL_DEFAULT_MAX_EVENTS,
+  POLL_MIN_MAX_EVENTS,
+  RESPOND_DEFAULT_MAX_EVENTS,
+  DEFAULT_IDLE_CLEANUP_MS,
+  DEFAULT_RUNNING_CLEANUP_MS,
+  DEFAULT_TERMINAL_CLEANUP_MS,
+  ErrorCode,
+} from "../types.js";
 import { resolveStdioMode } from "../utils/stdio-guard.js";
 
 const RESOURCE_SCHEME = "codex-mcp";
@@ -8,7 +23,75 @@ export const RESOURCE_URIS = {
   serverInfo: `${RESOURCE_SCHEME}:///server-info`,
   config: `${RESOURCE_SCHEME}:///config`,
   gotchas: `${RESOURCE_SCHEME}:///gotchas`,
+  quickstart: `${RESOURCE_SCHEME}:///quickstart`,
+  errors: `${RESOURCE_SCHEME}:///errors`,
 } as const;
+
+type RuntimeMetadataProvider = Pick<SessionManager, "getActiveSessionCount" | "getObservedDefaultModel">;
+
+interface ResourceCatalogEntry {
+  key: keyof typeof RESOURCE_URIS;
+  name: string;
+  title: string;
+  description: string;
+  mimeType: string;
+}
+
+const RESOURCE_CATALOG: ResourceCatalogEntry[] = [
+  {
+    key: "serverInfo",
+    name: "server_info",
+    title: "Server Info",
+    description: "Server metadata and runtime capabilities",
+    mimeType: "application/json",
+  },
+  {
+    key: "config",
+    name: "config",
+    title: "Config Guide",
+    description: "Parameter guide and config.toml mapping",
+    mimeType: "text/markdown",
+  },
+  {
+    key: "gotchas",
+    name: "gotchas",
+    title: "Gotchas",
+    description: "Practical limits and common issues",
+    mimeType: "text/markdown",
+  },
+  {
+    key: "quickstart",
+    name: "quickstart",
+    title: "Quickstart",
+    description: "Minimal end-to-end workflow",
+    mimeType: "text/markdown",
+  },
+  {
+    key: "errors",
+    name: "errors",
+    title: "Errors",
+    description: "Error code reference and recovery hints",
+    mimeType: "text/markdown",
+  },
+];
+
+const ERROR_CODE_HINTS: Record<ErrorCode, string> = {
+  [ErrorCode.INVALID_ARGUMENT]: "Input shape/value mismatch. Fix payload and retry.",
+  [ErrorCode.SESSION_NOT_FOUND]: "Unknown sessionId or already cleaned up.",
+  [ErrorCode.SESSION_BUSY]: "Session is running or waiting approval. Poll until idle/error.",
+  [ErrorCode.SESSION_NOT_RUNNING]: "Action requires running/waiting_approval session.",
+  [ErrorCode.REQUEST_NOT_FOUND]: "requestId was resolved, stale, or never existed.",
+  [ErrorCode.TIMEOUT]: "Operation timed out. Retry or use a longer timeout where supported.",
+  [ErrorCode.CANCELLED]: "Session was cancelled and cannot be resumed.",
+  [ErrorCode.APP_SERVER_START_FAILED]: "codex app-server failed to boot. Check CLI install/path.",
+  [ErrorCode.THREAD_FORK_RESUME_FAILED]:
+    "Forked thread could not resume in new process. Retry fork from current source session.",
+  [ErrorCode.PROTOCOL_PARSE_ERROR]:
+    "Non-JSON or malformed app-server line. Check shell/profile noise and transport health.",
+  [ErrorCode.WRITE_QUEUE_DROPPED]:
+    "stdin backpressure overflow. Reduce burst size and re-run in smaller turns.",
+  [ErrorCode.INTERNAL]: "Unexpected server-side failure. Inspect logs and retry safely.",
+};
 
 function asTextResource(uri: URL, text: string, mimeType: string): ReadResourceResult {
   return {
@@ -22,117 +105,342 @@ function asTextResource(uri: URL, text: string, mimeType: string): ReadResourceR
   };
 }
 
+function detectCodexCliVersion(timeoutMs = 1500): string | null {
+  try {
+    const run = spawnSync("codex", ["--version"], {
+      encoding: "utf8",
+      timeout: timeoutMs,
+      windowsHide: true,
+    });
+    const combined = `${run.stdout ?? ""}\n${run.stderr ?? ""}`.trim();
+    if (!combined) return null;
+    const versionToken = combined.match(/v?\d+\.\d+\.\d+(?:[-+][0-9A-Za-z.-]+)?/);
+    if (!versionToken) return combined.split(/\s+/)[0] ?? null;
+    return versionToken[0].replace(/^v/, "");
+  } catch {
+    return null;
+  }
+}
+
+function msToMinutes(ms: number): number {
+  return Math.floor(ms / 60_000);
+}
+
+function buildConfigGuideText(): string {
+  return [
+    "## Top-level parameters (`codex`)",
+    "",
+    "- Required: `prompt`, `approvalPolicy`, `sandbox`.",
+    "- Optional: `effort` (default `low`), `cwd` (default server cwd), `model` (default config.toml), `profile` (default CLI profile), `advanced`.",
+    "- Prefer passing `cwd` explicitly to avoid accidental server-cwd execution.",
+    "",
+    "## `advanced.*` guide",
+    "",
+    "- `advanced.baseInstructions`: replace default system instructions for this session (default: unchanged).",
+    "- `advanced.developerInstructions`: append extra developer instructions (default: none).",
+    "- `advanced.personality`: optional personality preset (default: config.toml).",
+    "- `advanced.summary`: summary verbosity preset for turn output (default: config.toml).",
+    "- `advanced.ephemeral`: do not persist thread state remotely (default `false`).",
+    "- `advanced.images`: local image file paths on the same host as codex-mcp (default: none).",
+    `- \`advanced.approvalTimeoutMs\`: auto-decline timeout for approval/user-input requests (default \`${DEFAULT_APPROVAL_TIMEOUT_MS}\` ms).`,
+    "- `advanced.outputSchema`: JSON Schema for structured output from `codex` turns (default: none).",
+    "",
+    "## `advanced.config` mapping",
+    "",
+    "Forwarded as `-c key=value` flags to `codex app-server`.",
+    "Primitives use `String(value)`; objects/arrays use `JSON.stringify(value)`.",
+    "",
+    "Prefer dedicated top-level params when available:",
+    "",
+    "- `codex.model` -> `-c model=...`",
+    "- `codex.approvalPolicy` -> `-c approval_policy=...`",
+    "- `codex.sandbox` -> `-c sandbox_mode=...`",
+    "- `codex.effort` -> turn-level reasoning effort (do not encode in `advanced.config`)",
+    "- `codex.profile` -> `-p ...`",
+    "",
+    "## `codex_reply` differences",
+    "",
+    "- `codex_reply.outputSchema` is top-level.",
+    "- `codex.outputSchema` lives under `advanced.outputSchema`.",
+    "- `codex_reply` can override `model`, `approvalPolicy`, `sandbox`, `effort`, `summary`, `personality`, and `cwd`.",
+    "- `codex_reply` only works when session state is `idle` or `error`; otherwise returns `SESSION_BUSY`.",
+    "- All `codex_reply` override fields default to no override when omitted.",
+    "",
+    "## Override persistence (`codex_reply`)",
+    "",
+    "- `model`, `approvalPolicy`, `sandbox`, and `cwd` update in-memory session defaults for later turns.",
+    "- `effort`, `summary`, `personality`, and `outputSchema` apply to the submitted turn payload.",
+    "",
+    "## Version compatibility note",
+    "",
+    "Available `advanced.config` keys depend on installed Codex CLI version.",
+    "To inspect your local CLI version, read `codex-mcp:///server-info` (`codexCliVersion`).",
+    "",
+    "## Other tool defaults (quick reference)",
+    "",
+    "- `codex_session.includeSensitive`: default `false`.",
+    `- \`codex_check.poll.maxEvents\`: default \`${POLL_DEFAULT_MAX_EVENTS}\` (minimum \`${POLL_MIN_MAX_EVENTS}\`).`,
+    `- \`codex_check.respond_*.maxEvents\`: default \`${RESPOND_DEFAULT_MAX_EVENTS}\`.`,
+    "- `codex_check.cursor`: default is session last consumed cursor when omitted.",
+    "",
+  ].join("\n");
+}
+
+function buildGotchasText(): string {
+  return [
+    "## Polling and cursors",
+    "",
+    '- Sessions are async. Poll `codex_check(action="poll")` until status is `idle`/`error`/`cancelled`.',
+    "- Store `nextCursor` and pass it back to avoid replay.",
+    `- Poll default is \`maxEvents=${POLL_DEFAULT_MAX_EVENTS}\` (authoritative: tool schema / constants).`,
+    `- Poll enforces minimum \`maxEvents=${POLL_MIN_MAX_EVENTS}\`; sending \`0\` is normalized to \`${POLL_MIN_MAX_EVENTS}\`.`,
+    `- \`respond_approval\` and \`respond_user_input\` default to compact ACK with \`maxEvents=${RESPOND_DEFAULT_MAX_EVENTS}\`.`,
+    "- respond_* uses monotonic cursor handling: `max(cursor, sessionLastCursor)`.",
+    "- If `cursorResetTo` is present, your cursor is stale (old events were evicted); restart from that value.",
+    "",
+    "## Approval behavior",
+    "",
+    `- Pending approvals/user-input auto-decline after \`approvalTimeoutMs\` (default ${DEFAULT_APPROVAL_TIMEOUT_MS} ms).`,
+    "- `untrusted` behavior is enforced by Codex CLI backend and may auto-allow some low-risk commands.",
+    "- Do not assume every read-only command will always require approval across CLI versions.",
+    "",
+    "## Event model",
+    "",
+    "- Top-level `events[].type` is one of: `output`, `progress`, `approval_request`, `approval_result`, `result`, `error`.",
+    "- Fine-grained stream semantics are in `events[].data.method` (for example command output delta, reasoning delta, turn updates).",
+    "- Retryable interruptions surface as `progress` with `method=\"codex-mcp/reconnect\"` and include retry fields.",
+    "- During reconnect/retry, continue polling normally; if retries stop (`willRetry=false`), session transitions to error path.",
+    "",
+    "## Windows shell/profile issues",
+    "",
+    "- On Windows wrappers, prefer `pwsh -NoProfile` to avoid profile/banner stdout noise.",
+    "- Profile noise can affect both MCP handshake and agent-internal command turns.",
+    "- For mojibake, enforce UTF-8 shell output (`chcp 65001`, `$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()`).",
+    "- Prefer host-native absolute paths for `cwd` and file args (Windows example: `D:\\\\Lab\\\\codex-mcp`).",
+    "",
+    "## Lifecycle and cleanup",
+    "",
+    `- Idle sessions are auto-cleaned after ${msToMinutes(DEFAULT_IDLE_CLEANUP_MS)} minutes.`,
+    `- Running/waiting sessions are auto-cleaned after ${msToMinutes(DEFAULT_RUNNING_CLEANUP_MS)} minutes.`,
+    `- Error/cancelled sessions are retained for about ${msToMinutes(DEFAULT_TERMINAL_CLEANUP_MS)} minutes, then removed.`,
+    "- Session state is in-memory. Restarting codex-mcp drops all existing sessions.",
+    "",
+    "## Capacity",
+    "",
+    "- codex-mcp does not hard-code a strict concurrent-session cap.",
+    "- Practical limit depends on machine resources and child-process load.",
+    "",
+  ].join("\n");
+}
+
+function buildQuickstartText(): string {
+  return [
+    "## Minimal flow",
+    "",
+    "1. Start session (`codex`)",
+    "",
+    "```json",
+    "{",
+    '  "prompt": "List files and summarize repository purpose.",',
+    '  "approvalPolicy": "on-request",',
+    '  "sandbox": "workspace-write",',
+    '  "effort": "low",',
+    '  "cwd": "D:\\\\Lab\\\\codex-mcp"',
+    "}",
+    "```",
+    "",
+    "Typical start result:",
+    "",
+    "```json",
+    "{",
+    '  "sessionId": "sess_abc123",',
+    '  "threadId": "thread_xyz",',
+    '  "status": "running",',
+    '  "pollInterval": 3000',
+    "}",
+    "```",
+    "",
+    "2. Poll incrementally (`codex_check`)",
+    "",
+    "```json",
+    "{",
+    '  "action": "poll",',
+    '  "sessionId": "sess_abc123",',
+    '  "cursor": 0,',
+    '  "maxEvents": 10',
+    "}",
+    "```",
+    "",
+    "3. If `actions[]` contains an approval request, respond:",
+    "",
+    "```json",
+    "{",
+    '  "action": "respond_approval",',
+    '  "sessionId": "sess_abc123",',
+    '  "requestId": "req_123",',
+    '  "decision": "acceptForSession"',
+    "}",
+    "```",
+    "",
+    "4. If `actions[]` contains a user-input request, respond:",
+    "",
+    "```json",
+    "{",
+    '  "action": "respond_user_input",',
+    '  "sessionId": "sess_abc123",',
+    '  "requestId": "req_456",',
+    '  "answers": {',
+    '    "question-id": {',
+    '      "answers": ["Option A"]',
+    "    }",
+    "  }",
+    "}",
+    "```",
+    "",
+    "5. Continue polling until terminal status (`idle`, `error`, or `cancelled`).",
+    "",
+    "## Cursor notes",
+    "",
+    "- Omit `cursor` to continue from session last consumed cursor.",
+    `- Omit \`maxEvents\`: defaults are poll=${POLL_DEFAULT_MAX_EVENTS}, respond_*=${RESPOND_DEFAULT_MAX_EVENTS}.`,
+    "- Use returned `nextCursor` for the next call.",
+    "- If `cursorResetTo` appears, reset to that value and continue.",
+    "",
+  ].join("\n");
+}
+
+function buildErrorsText(): string {
+  const lines: string[] = [
+    "## Error format",
+    "",
+    "Tool failures use: `Error [CODE]: message`",
+    "",
+    "## Codes",
+    "",
+  ];
+
+  for (const code of Object.values(ErrorCode)) {
+    lines.push(`- \`${code}\`: ${ERROR_CODE_HINTS[code]}`);
+  }
+
+  lines.push("");
+  lines.push("## Recovery basics");
+  lines.push("");
+  lines.push("- `INVALID_ARGUMENT`: fix payload fields/enums and retry.");
+  lines.push("- `SESSION_BUSY`: poll until terminal/idle before issuing incompatible action.");
+  lines.push("- `REQUEST_NOT_FOUND`: re-poll and use latest `actions[].requestId`.");
+  lines.push("- `PROTOCOL_PARSE_ERROR`: remove shell/profile stdout noise and restart session.");
+  lines.push("");
+
+  return lines.join("\n");
+}
+
 export function registerResources(
   server: Pick<McpServer, "registerResource">,
-  deps: { version: string }
+  deps: { version: string; sessionManager: RuntimeMetadataProvider }
 ): void {
+  let codexCliVersionCache: string | null | undefined;
+  const getCodexCliVersion = (): string | null => {
+    if (codexCliVersionCache !== undefined) return codexCliVersionCache;
+    codexCliVersionCache = detectCodexCliVersion();
+    return codexCliVersionCache;
+  };
+
+  const byKey = new Map(RESOURCE_CATALOG.map((entry) => [entry.key, entry]));
+
+  const serverInfoMeta = byKey.get("serverInfo")!;
   const serverInfoUri = new URL(RESOURCE_URIS.serverInfo);
   server.registerResource(
-    "server_info",
+    serverInfoMeta.name,
     serverInfoUri.toString(),
     {
-      title: "Server Info",
-      description: "Server metadata: version, platform, runtime",
-      mimeType: "application/json",
+      title: serverInfoMeta.title,
+      description: serverInfoMeta.description,
+      mimeType: serverInfoMeta.mimeType,
     },
-    () =>
-      asTextResource(
+    () => {
+      const observedModel = deps.sessionManager.getObservedDefaultModel();
+      return asTextResource(
         serverInfoUri,
         JSON.stringify(
           {
             name: "codex-mcp",
             version: deps.version,
+            codexCliVersion: getCodexCliVersion(),
             node: process.version,
             platform: process.platform,
             arch: process.arch,
             stdioMode: resolveStdioMode().mode,
-            resources: Object.values(RESOURCE_URIS),
+            supportedApprovalPolicies: APPROVAL_POLICIES,
+            supportedSandboxModes: SANDBOX_MODES,
+            supportedEffortLevels: EFFORT_LEVELS,
+            activeSessions: deps.sessionManager.getActiveSessionCount(),
+            defaultModel: observedModel,
+            defaultModelSource: observedModel ? "session-default" : "unknown",
+            resources: RESOURCE_CATALOG.map((entry) => ({
+              uri: RESOURCE_URIS[entry.key],
+              title: entry.title,
+              mimeType: entry.mimeType,
+              description: entry.description,
+            })),
           },
           null,
           2
         ),
         "application/json"
-      )
+      );
+    }
   );
 
+  const configMeta = byKey.get("config")!;
   const configUri = new URL(RESOURCE_URIS.config);
   server.registerResource(
-    "config",
+    configMeta.name,
     configUri.toString(),
     {
-      title: "Config Guide",
-      description: "How tool params map to config.toml and app-server flags",
-      mimeType: "text/markdown",
+      title: configMeta.title,
+      description: configMeta.description,
+      mimeType: configMeta.mimeType,
     },
-    () =>
-      asTextResource(
-        configUri,
-        [
-          "## `advanced.config`",
-          "",
-          "Forwarded as `-c key=value` flags to `codex app-server`.",
-          "Primitives: `String(value)`, objects/arrays: `JSON.stringify(value)`.",
-          "",
-          "Prefer dedicated top-level params:",
-          "",
-          "- `codex.model` -> `-c model=...`",
-          "- `codex.approvalPolicy` -> `-c approval_policy=...`",
-          "- `codex.sandbox` -> `-c sandbox_mode=...`",
-          "- `codex.profile` -> `-p ...`",
-          "",
-          "### Example",
-          "",
-          "```json",
-          "{",
-          '  "prompt": "Do the task",',
-          '  "advanced": {',
-          '    "config": {',
-          '      "tool_timeout_sec": 120,',
-          '      "enabled_tools": ["bash", "read", "edit"]',
-          "    }",
-          "  }",
-          "}",
-          "```",
-          "",
-          "Keys depend on Codex CLI version.",
-          "",
-        ].join("\n"),
-        "text/markdown"
-      )
+    () => asTextResource(configUri, buildConfigGuideText(), "text/markdown")
   );
 
+  const gotchasMeta = byKey.get("gotchas")!;
   const gotchasUri = new URL(RESOURCE_URIS.gotchas);
   server.registerResource(
-    "gotchas",
+    gotchasMeta.name,
     gotchasUri.toString(),
     {
-      title: "Gotchas",
-      description: "Practical limits and common issues",
-      mimeType: "text/markdown",
+      title: gotchasMeta.title,
+      description: gotchasMeta.description,
+      mimeType: gotchasMeta.mimeType,
     },
-    () =>
-      asTextResource(
-        gotchasUri,
-        [
-          '- Sessions are async — poll `codex_check(action="poll")` until status is `idle`/`error`/`cancelled`.',
-          "- Store `nextCursor` and pass it back to avoid replaying events.",
-          "- `poll` defaults to `maxEvents=1` for lightweight incremental updates. Increase temporarily (for example `10-20`) only when you need faster catch-up.",
-          "- If `poll` is sent with `maxEvents=0`, codex-mcp treats it as `1` to avoid no-op loops.",
-          "- For `respond_approval` / `respond_user_input`, cursor handling is monotonic (`max(cursor, sessionLastCursor)`) to avoid stale replay.",
-          "- `respond_approval` / `respond_user_input` default to compact ACK (`maxEvents=0`) and this is usually better than `1`; use `1-5` only when you explicitly need immediate events in the same response.",
-          "- If you omit `cursor`, codex-mcp continues from the session's last consumed cursor.",
-          "- If `cursorResetTo` is present, cursor was stale; restart from `cursorResetTo`.",
-          "- Approvals auto-decline after `approvalTimeoutMs`. Respond to `actions[]` promptly.",
-          "- `advanced.images` must exist on server host; sent as `localImage` inputs.",
-          "- `CODEX_MCP_STDIO_MODE` controls startup guard behavior: `auto` (default), `strict` (block on high-confidence contamination risks), `off`.",
-          "- On Windows PowerShell wrappers, prefer `pwsh -NoProfile` to avoid profile banner output.",
-          "- Profile/banner stdout emitted before MCP handshake cannot be filtered by codex-mcp (stdout is protocol channel).",
-          '- If Windows command turns still fail with profile noise, this is usually inside `codex app-server` shell execution; clean your PowerShell profile and prefer `approvalPolicy="on-failure"` / `"never"`.',
-          "- If Windows output contains mojibake, enforce UTF-8 shell output (`chcp 65001`, `$OutputEncoding = [Console]::OutputEncoding = [System.Text.UTF8Encoding]::new()`).",
-          '- Retryable transport/API interruptions are surfaced as progress event `method="codex-mcp/reconnect"`.',
-          "",
-        ].join("\n"),
-        "text/markdown"
-      )
+    () => asTextResource(gotchasUri, buildGotchasText(), "text/markdown")
+  );
+
+  const quickstartMeta = byKey.get("quickstart")!;
+  const quickstartUri = new URL(RESOURCE_URIS.quickstart);
+  server.registerResource(
+    quickstartMeta.name,
+    quickstartUri.toString(),
+    {
+      title: quickstartMeta.title,
+      description: quickstartMeta.description,
+      mimeType: quickstartMeta.mimeType,
+    },
+    () => asTextResource(quickstartUri, buildQuickstartText(), "text/markdown")
+  );
+
+  const errorsMeta = byKey.get("errors")!;
+  const errorsUri = new URL(RESOURCE_URIS.errors);
+  server.registerResource(
+    errorsMeta.name,
+    errorsUri.toString(),
+    {
+      title: errorsMeta.title,
+      description: errorsMeta.description,
+      mimeType: errorsMeta.mimeType,
+    },
+    () => asTextResource(errorsUri, buildErrorsText(), "text/markdown")
   );
 }
