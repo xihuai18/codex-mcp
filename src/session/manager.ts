@@ -63,6 +63,7 @@ const MAX_COALESCED_DELTA_CHARS = 16_384;
 // These patterns are stripped from COMMAND_OUTPUT_DELTA events before they
 // enter the event buffer.  Disable with CODEX_MCP_DISABLE_NOISE_FILTER=1.
 const NOISE_FILTER_ENABLED = process.env.CODEX_MCP_DISABLE_NOISE_FILTER !== "1";
+const WINDOWS_TERMINAL_INTEGRATION_PREFIX = `${String.fromCharCode(0x1b)}]633;`;
 
 const SHELL_NOISE_LINE_PATTERNS: RegExp[] = [
   // oh-my-posh migration / update prompts
@@ -76,8 +77,6 @@ const SHELL_NOISE_LINE_PATTERNS: RegExp[] = [
   /Loading personal and system profiles/i,
   // conda/mamba init noise that leaks through profiles
   /^(\(base\)|\(conda\))/,
-  // Windows Terminal shell integration sequences
-  /\x1b\]633;/,
   // Common "new version available" nag lines from profile tools
   /A new version of .+ is available/i,
 ];
@@ -89,7 +88,11 @@ const SHELL_NOISE_LINE_PATTERNS: RegExp[] = [
 function stripShellNoise(delta: string): string {
   if (!NOISE_FILTER_ENABLED) return delta;
   const lines = delta.split("\n");
-  const cleaned = lines.filter((line) => !SHELL_NOISE_LINE_PATTERNS.some((re) => re.test(line)));
+  const cleaned = lines.filter(
+    (line) =>
+      !line.includes(WINDOWS_TERMINAL_INTEGRATION_PREFIX) &&
+      !SHELL_NOISE_LINE_PATTERNS.some((re) => re.test(line))
+  );
   // Preserve original trailing newline structure
   if (cleaned.length === 0) return "";
   return cleaned.join("\n");
