@@ -560,7 +560,10 @@ export class SessionManager {
       events = events.slice(0, maxEvents);
     }
 
-    let nextCursor = events.length > 0 ? events[events.length - 1].id + 1 : cursorFloor;
+    let nextCursor = clampCursorToLatest(
+      events.length > 0 ? events[events.length - 1].id + 1 : cursorFloor,
+      buf.nextId
+    );
 
     // Collect pending actions
     const actions: CheckResult["actions"] = [];
@@ -616,10 +619,12 @@ export class SessionManager {
           while (result.events.length > 0 && payloadByteSize(result) > normalizedMaxBytes) {
             result.events.pop();
           }
-          nextCursor =
+          nextCursor = clampCursorToLatest(
             result.events.length > 0
               ? result.events[result.events.length - 1]!.id + 1
-              : cursorFloor;
+              : cursorFloor,
+            buf.nextId
+          );
           result.nextCursor = nextCursor;
           truncatedFields.push("events");
         }
@@ -1401,10 +1406,36 @@ function compactActionsForBudget(
     type: action.type,
     requestId: action.requestId,
     kind: action.kind,
-    params: undefined,
+    params: compactActionParamsForBudget(action),
     itemId: action.itemId,
     createdAt: action.createdAt,
   }));
+}
+
+function compactActionParamsForBudget(
+  action: NonNullable<CheckResult["actions"]>[number]
+): unknown {
+  if (action.kind !== "user_input" || !isRecord(action.params)) {
+    return undefined;
+  }
+
+  const rawQuestions = action.params.questions;
+  if (!Array.isArray(rawQuestions)) {
+    return undefined;
+  }
+
+  const compactQuestions: Array<{ questionId: string }> = [];
+  for (const entry of rawQuestions) {
+    if (isRecord(entry) && typeof entry.questionId === "string") {
+      compactQuestions.push({ questionId: entry.questionId });
+    }
+  }
+
+  return compactQuestions.length > 0 ? { questions: compactQuestions } : undefined;
+}
+
+function clampCursorToLatest(cursor: number, latestCursor: number): number {
+  return Math.max(0, Math.min(cursor, latestCursor));
 }
 
 function persistMonotonicCursor(
@@ -1412,7 +1443,7 @@ function persistMonotonicCursor(
   nextCursor: number,
   latestCursor: number
 ): number {
-  const boundedCursor = Math.max(0, Math.min(nextCursor, latestCursor));
+  const boundedCursor = clampCursorToLatest(nextCursor, latestCursor);
   return Math.max(previousCursor, boundedCursor);
 }
 
