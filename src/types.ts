@@ -202,12 +202,18 @@ export enum ErrorCode {
   REQUEST_NOT_FOUND = "REQUEST_NOT_FOUND",
   TIMEOUT = "TIMEOUT",
   CANCELLED = "CANCELLED",
+  APP_SERVER_START_FAILED = "APP_SERVER_START_FAILED",
+  THREAD_FORK_RESUME_FAILED = "THREAD_FORK_RESUME_FAILED",
+  PROTOCOL_PARSE_ERROR = "PROTOCOL_PARSE_ERROR",
+  WRITE_QUEUE_DROPPED = "WRITE_QUEUE_DROPPED",
   INTERNAL = "INTERNAL",
 }
 
 // ── Defaults ───────────────────────────────────────────────────────
 
+export const DEFAULT_EFFORT_LEVEL: EffortLevel = "low";
 export const DEFAULT_POLL_INTERVAL = 3000;
+export const WAITING_APPROVAL_POLL_INTERVAL = 1000;
 /** Public codex_check default for action="poll" when maxEvents is omitted. */
 export const POLL_DEFAULT_MAX_EVENTS = 1;
 /** Public codex_check lower bound for action="poll" to avoid no-op loops. */

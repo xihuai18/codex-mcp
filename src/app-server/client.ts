@@ -28,6 +28,7 @@ import {
 } from "./protocol.js";
 import { buildAppServerArgs, type AppServerSpawnOptions } from "./lifecycle.js";
 import { resolveCodexInvocation } from "./codex-bin.js";
+import { ErrorCode } from "../types.js";
 
 declare const __PKG_VERSION__: string;
 const CLIENT_VERSION = typeof __PKG_VERSION__ !== "undefined" ? __PKG_VERSION__ : "0.0.0-dev";
@@ -142,8 +143,10 @@ export class AppServerClient extends EventEmitter {
   respondToServer(id: RequestId, result: unknown): void {
     try {
       this.send({ jsonrpc: "2.0", id, result } as JsonRpcResponse);
-    } catch {
-      // Ignore send failures (process may have exited)
+    } catch (err) {
+      console.error(
+        `[app-server] Failed to send JSON-RPC response for server request id=${String(id)}: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -153,8 +156,10 @@ export class AppServerClient extends EventEmitter {
   respondErrorToServer(id: RequestId, code: number, message: string): void {
     try {
       this.send({ jsonrpc: "2.0", id, error: { code, message } } as JsonRpcResponse);
-    } catch {
-      // Ignore send failures (process may have exited)
+    } catch (err) {
+      console.error(
+        `[app-server] Failed to send JSON-RPC error response for server request id=${String(id)}: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 
@@ -261,15 +266,17 @@ export class AppServerClient extends EventEmitter {
         }
       } catch {
         const error = new Error(
-          `app-server protocol error: failed to parse JSON line: ${trimmed.slice(0, 200)}`
+          `Error [${ErrorCode.PROTOCOL_PARSE_ERROR}]: app-server protocol error: failed to parse JSON line: ${trimmed.slice(0, 200)}`
         );
         console.error(`[app-server] ${error.message}`);
         this.lastFailure ??= error;
         this.failAllPending(error);
         try {
           this.terminate("SIGTERM");
-        } catch {
-          /* ignore */
+        } catch (terminateErr) {
+          console.error(
+            `[app-server] Failed to terminate app-server after protocol parse error: ${terminateErr instanceof Error ? terminateErr.message : String(terminateErr)}`
+          );
         }
       }
     }
@@ -280,15 +287,19 @@ export class AppServerClient extends EventEmitter {
 
     if (this.backpressure || this.writeQueue.length > 0) {
       if (this.queuedBytes + payload.length > MAX_WRITE_QUEUE_BYTES) {
-        const error = new Error("app-server stdin backpressure: write queue exceeded limit");
+        const error = new Error(
+          `Error [${ErrorCode.WRITE_QUEUE_DROPPED}]: app-server stdin backpressure: write queue exceeded limit`
+        );
         this.lastFailure = error;
         this.failAllPending(error);
         this.writeQueue = [];
         this.queuedBytes = 0;
         try {
           this.terminate("SIGTERM");
-        } catch {
-          /* ignore */
+        } catch (terminateErr) {
+          console.error(
+            `[app-server] Failed to terminate app-server after write queue overflow: ${terminateErr instanceof Error ? terminateErr.message : String(terminateErr)}`
+          );
         }
         throw error;
       }
@@ -309,7 +320,19 @@ export class AppServerClient extends EventEmitter {
   }
 
   private flushWriteQueue(): void {
-    if (!this.process?.stdin?.writable) return;
+    if (!this.process?.stdin?.writable) {
+      const dropped = this.dropQueuedWrites("stdin is not writable while flushing");
+      if (dropped) {
+        try {
+          this.terminate("SIGTERM");
+        } catch (terminateErr) {
+          console.error(
+            `[app-server] Failed to terminate app-server after dropping queued writes: ${terminateErr instanceof Error ? terminateErr.message : String(terminateErr)}`
+          );
+        }
+      }
+      return;
+    }
     this.backpressure = false;
     while (this.writeQueue.length > 0 && !this.backpressure) {
       const next = this.writeQueue.shift()!;
@@ -326,6 +349,19 @@ export class AppServerClient extends EventEmitter {
         return;
       }
     }
+  }
+
+  private dropQueuedWrites(reason: string): boolean {
+    if (this.writeQueue.length === 0) return false;
+    const error = new Error(`Error [${ErrorCode.WRITE_QUEUE_DROPPED}]: ${reason}`);
+    console.error(
+      `[app-server] Dropping ${this.writeQueue.length} queued writes (${this.queuedBytes} bytes): ${reason}`
+    );
+    this.lastFailure = error;
+    this.failAllPending(error);
+    this.writeQueue = [];
+    this.queuedBytes = 0;
+    return true;
   }
 
   private handleMessage(msg: JsonRpcMessage): void {
@@ -402,8 +438,10 @@ export class AppServerClient extends EventEmitter {
                 stdio: "ignore",
                 windowsHide: true,
               });
-            } catch {
-              // ignore
+            } catch (err) {
+              console.error(
+                `[app-server] Failed to force-kill app-server via taskkill: ${err instanceof Error ? err.message : String(err)}`
+              );
             }
           } else {
             this.terminate("SIGKILL");
@@ -437,15 +475,19 @@ export class AppServerClient extends EventEmitter {
       try {
         process.kill(-this.process.pid, signal);
         return;
-      } catch {
-        // fall back to direct kill
+      } catch (err) {
+        console.error(
+          `[app-server] Failed to kill detached process group with ${signal}, falling back to direct kill: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
 
     try {
       this.process.kill(signal);
-    } catch {
-      // ignore
+    } catch (err) {
+      console.error(
+        `[app-server] Failed to send ${signal} to app-server process: ${err instanceof Error ? err.message : String(err)}`
+      );
     }
   }
 }

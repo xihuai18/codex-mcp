@@ -22,6 +22,7 @@ import {
   POLL_DEFAULT_MAX_EVENTS,
   POLL_MIN_MAX_EVENTS,
   RESPOND_DEFAULT_MAX_EVENTS,
+  DEFAULT_EFFORT_LEVEL,
   ErrorCode,
 } from "./types.js";
 import { redactPaths } from "./utils/redact.js";
@@ -40,6 +41,14 @@ function formatErrorMessage(err: unknown): string {
     return message;
   }
   return `Error [${ErrorCode.INTERNAL}]: ${redactPaths(message)}`;
+}
+
+function toStructuredContent(value: unknown): Record<string, unknown> {
+  // MCP structuredContent is object-shaped; wrap non-object payloads for compatibility.
+  if (typeof value === "object" && value !== null && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return { value };
 }
 
 export function createServer(serverCwd: string): McpServer {
@@ -97,7 +106,10 @@ export function createServer(serverCwd: string): McpServer {
           .describe("Sandbox mode (required)"),
         effort: z
           .enum(EFFORT_LEVELS)
-          .describe("Reasoning effort (required)"),
+          .default(DEFAULT_EFFORT_LEVEL)
+          .describe(
+            "Reasoning effort (default: low). Increase for complex tasks and lower for simple tasks."
+          ),
         cwd: z.string().optional().describe("Working directory (default: server cwd)"),
         model: z.string().optional().describe("Model override (default: config.toml)"),
         profile: z.string().optional().describe("config.toml profile name"),
@@ -154,7 +166,7 @@ export function createServer(serverCwd: string): McpServer {
         const result = await executeCodex(args, sessionManager, serverCwd);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: result as unknown as Record<string, unknown>,
+          structuredContent: toStructuredContent(result),
           isError: false,
         };
       } catch (err: unknown) {
@@ -205,7 +217,7 @@ export function createServer(serverCwd: string): McpServer {
         const result = await executeCodexReply(args, sessionManager);
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: result as unknown as Record<string, unknown>,
+          structuredContent: toStructuredContent(result),
           isError: false,
         };
       } catch (err: unknown) {
@@ -279,7 +291,7 @@ export function createServer(serverCwd: string): McpServer {
             : false;
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: result as unknown as Record<string, unknown>,
+          structuredContent: toStructuredContent(result),
           isError,
         };
       } catch (err: unknown) {
@@ -414,7 +426,7 @@ respond_user_input: Submit user-input answers. Default maxEvents=${RESPOND_DEFAU
             : false;
         return {
           content: [{ type: "text" as const, text: JSON.stringify(result, null, 2) }],
-          structuredContent: result as unknown as Record<string, unknown>,
+          structuredContent: toStructuredContent(result),
           isError,
         };
       } catch (err: unknown) {

@@ -35,6 +35,7 @@ import {
   COMMAND_DECISIONS,
   FILE_CHANGE_DECISIONS,
   DEFAULT_POLL_INTERVAL,
+  WAITING_APPROVAL_POLL_INTERVAL,
   DEFAULT_MAX_EVENTS,
   DEFAULT_EVENT_BUFFER_SIZE,
   DEFAULT_EVENT_BUFFER_HARD_SIZE,
@@ -51,6 +52,7 @@ const COALESCED_PROGRESS_DELTA_METHODS = new Set<string>([
   Methods.REASONING_TEXT_DELTA,
   Methods.REASONING_SUMMARY_DELTA,
 ]);
+// Guard against unbounded in-memory string growth when app-server emits hot delta streams.
 const MAX_COALESCED_DELTA_CHARS = 16_384;
 
 export interface SessionManagerOptions {
@@ -333,8 +335,10 @@ export class SessionManager {
           if (req.kind === "command") req.respond({ decision: "cancel" });
           else if (req.kind === "fileChange") req.respond({ decision: "cancel" });
           else if (req.kind === "user_input") req.respond({ answers: {} });
-        } catch {
-          // Ignore respond errors during cancel
+        } catch (err) {
+          console.error(
+            `[codex-mcp] Failed to respond pending request during cancel: session=${sessionId} request=${reqId} kind=${req.kind} error=${err instanceof Error ? err.message : String(err)}`
+          );
         }
       }
       session.pendingRequests.delete(reqId);
@@ -451,10 +455,23 @@ export class SessionManager {
         pollInterval: DEFAULT_POLL_INTERVAL,
       };
     } catch (err) {
+      const errorMessage = redactPaths(err instanceof Error ? err.message : String(err));
+      console.error(
+        `[codex-mcp] forkSession failed after thread/fork created thread=${forkedThreadId}. The app-server protocol does not currently expose a guaranteed thread-delete RPC, so manual cleanup may be required.`
+      );
       newSession.status = "error";
-      await newClient.destroy();
+      try {
+        await newClient.destroy();
+      } catch (destroyErr) {
+        console.error(
+          `[codex-mcp] Failed to destroy forked app-server client after resume failure: session=${newSessionId} error=${destroyErr instanceof Error ? destroyErr.message : String(destroyErr)}`
+        );
+      }
       this.clients.delete(newSessionId);
-      throw err;
+      this.sessions.delete(newSessionId);
+      throw new Error(
+        `Error [${ErrorCode.THREAD_FORK_RESUME_FAILED}]: Failed to resume forked thread '${forkedThreadId}' in new app-server process: ${errorMessage}`
+      );
     }
   }
 
@@ -592,8 +609,10 @@ export class SessionManager {
     if (req.respond && response) {
       try {
         req.respond(response);
-      } catch {
-        /* ignore send errors */
+      } catch (err) {
+        console.error(
+          `[codex-mcp] Failed to send approval response: session=${sessionId} request=${requestId} kind=${req.kind} error=${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
 
@@ -641,8 +660,10 @@ export class SessionManager {
     if (req.respond) {
       try {
         req.respond({ answers } as UserInputRequestResponse);
-      } catch {
-        /* ignore send errors */
+      } catch (err) {
+        console.error(
+          `[codex-mcp] Failed to send user input response: session=${sessionId} request=${requestId} error=${err instanceof Error ? err.message : String(err)}`
+        );
       }
     }
 
@@ -679,7 +700,11 @@ export class SessionManager {
     }
 
     for (const [id, client] of this.clients) {
-      client.destroy().catch(() => {});
+      client.destroy().catch((err) => {
+        console.error(
+          `[codex-mcp] Failed to destroy app-server client during manager.destroy(): session=${id} error=${err instanceof Error ? err.message : String(err)}`
+        );
+      });
       this.clients.delete(id);
     }
     this.sessions.clear();
@@ -846,8 +871,10 @@ export class SessionManager {
               pending.decision = "decline";
               try {
                 client.respondToServer(id, { decision: "decline" } as CommandApprovalResponse);
-              } catch {
-                /* client may be destroyed */
+              } catch (err) {
+                console.error(
+                  `[codex-mcp] Failed to auto-decline command approval timeout: session=${sessionId} request=${requestId} error=${err instanceof Error ? err.message : String(err)}`
+                );
               }
               pushEvent(
                 session.eventBuffer,
@@ -906,8 +933,10 @@ export class SessionManager {
               pending.decision = "decline";
               try {
                 client.respondToServer(id, { decision: "decline" } as FileChangeApprovalResponse);
-              } catch {
-                /* client may be destroyed */
+              } catch (err) {
+                console.error(
+                  `[codex-mcp] Failed to auto-decline file-change approval timeout: session=${sessionId} request=${requestId} error=${err instanceof Error ? err.message : String(err)}`
+                );
               }
               pushEvent(
                 session.eventBuffer,
@@ -962,8 +991,10 @@ export class SessionManager {
               pending.resolved = true;
               try {
                 client.respondToServer(id, { answers: {} } as UserInputRequestResponse);
-              } catch {
-                /* client may be destroyed */
+              } catch (err) {
+                console.error(
+                  `[codex-mcp] Failed to auto-answer user-input timeout: session=${sessionId} request=${requestId} error=${err instanceof Error ? err.message : String(err)}`
+                );
               }
               pushEvent(
                 session.eventBuffer,
@@ -1082,7 +1113,11 @@ export class SessionManager {
         this.clients
           .get(id)
           ?.destroy()
-          .catch(() => {});
+          .catch((err) => {
+            console.error(
+              `[codex-mcp] Failed to destroy app-server client during cleanup: session=${id} error=${err instanceof Error ? err.message : String(err)}`
+            );
+          });
         this.clients.delete(id);
         this.sessions.delete(id);
       }
@@ -1091,14 +1126,18 @@ export class SessionManager {
 
   private requestCancellation(sessionId: string, reason: string): void {
     if (this.cancellationInFlight.has(sessionId)) return;
-    this.cancelSession(sessionId, reason).catch(() => {});
+    this.cancelSession(sessionId, reason).catch((err) => {
+      console.error(
+        `[codex-mcp] Failed to cancel session during cleanup: session=${sessionId} reason=${reason} error=${err instanceof Error ? err.message : String(err)}`
+      );
+    });
   }
 }
 
 // ── Helpers ──────────────────────────────────────────────────────
 
 function pollIntervalForStatus(status: SessionStatus): number | undefined {
-  if (status === "waiting_approval") return 1000;
+  if (status === "waiting_approval") return WAITING_APPROVAL_POLL_INTERVAL;
   if (status === "running") return DEFAULT_POLL_INTERVAL;
   return undefined; // terminal states don't need polling
 }
@@ -1274,10 +1313,54 @@ function evictEvents(buf: EventBuffer): void {
     buf.events.splice(idx, 1);
   }
 
-  // Hard limit: force evict
-  while (buf.events.length > buf.hardMaxSize) {
-    buf.events.shift();
+  if (buf.events.length <= buf.hardMaxSize) return;
+
+  // Hard limit: select evictions in one pass to avoid O(n^2) repeated scans.
+  const overflow = buf.events.length - buf.hardMaxSize;
+  const approvalResultIdx: number[] = [];
+  const nonPinnedIdx: number[] = [];
+  const pinnedNonCriticalIdx: number[] = [];
+  const criticalPinnedIdx: number[] = [];
+
+  for (let i = 0; i < buf.events.length; i++) {
+    const event = buf.events[i];
+    if (event.type === "approval_result") {
+      approvalResultIdx.push(i);
+    } else if (!event.pinned) {
+      nonPinnedIdx.push(i);
+    } else if (!isHardPinnedCriticalType(event.type)) {
+      pinnedNonCriticalIdx.push(i);
+    } else {
+      criticalPinnedIdx.push(i);
+    }
   }
+
+  const drop = new Set<number>();
+  const take = (indices: number[]) => {
+    for (const idx of indices) {
+      if (drop.size >= overflow) break;
+      drop.add(idx);
+    }
+  };
+
+  take(approvalResultIdx);
+  take(nonPinnedIdx);
+  take(pinnedNonCriticalIdx);
+  const beforeCritical = drop.size;
+  take(criticalPinnedIdx);
+
+  if (drop.size > beforeCritical) {
+    console.error(
+      "[codex-mcp] Event buffer hard limit exceeded with only critical pinned events; evicting oldest event."
+    );
+  }
+
+  if (drop.size === 0) return;
+  buf.events = buf.events.filter((_, idx) => !drop.has(idx));
+}
+
+function isHardPinnedCriticalType(type: SessionEventType): boolean {
+  return type === "approval_request" || type === "result" || type === "error";
 }
 
 function toPublicInfo(session: SessionInfo): PublicSessionInfo {
@@ -1331,7 +1414,10 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
 }
 
-/** Extract thread id from either v1 ({threadId}) or v2 ({thread:{id}}) responses. */
+/**
+ * Extract thread id from either v1 ({threadId}) or v2 ({thread:{id}}) responses.
+ * threadId is mandatory for session correctness, so invalid shape throws.
+ */
 function extractThreadId(result: unknown): string {
   if (!isRecord(result)) {
     throw new Error(`Error [${ErrorCode.INTERNAL}]: Invalid thread response: expected object`);
@@ -1346,7 +1432,10 @@ function extractThreadId(result: unknown): string {
   throw new Error(`Error [${ErrorCode.INTERNAL}]: Invalid thread response: missing thread id`);
 }
 
-/** Extract turn id from either v1 ({turnId}) or v2 ({turn:{id}}) responses. */
+/**
+ * Extract turn id from either v1 ({turnId}) or v2 ({turn:{id}}) responses.
+ * turnId is optional because turn/started notifications are authoritative.
+ */
 function extractTurnId(result: unknown): string | undefined {
   if (!isRecord(result)) return undefined;
 

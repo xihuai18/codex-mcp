@@ -2,7 +2,7 @@
  * Configuration helpers for codex-mcp.
  */
 import type { AppServerSpawnOptions } from "../app-server/lifecycle.js";
-import type { ApprovalPolicy, SandboxMode } from "../types.js";
+import type { ApprovalPolicy, EffortLevel, SandboxMode } from "../types.js";
 
 export interface CodexToolParams {
   prompt: string;
@@ -11,7 +11,7 @@ export interface CodexToolParams {
   profile?: string;
   approvalPolicy: ApprovalPolicy;
   sandbox: SandboxMode;
-  effort: string;
+  effort?: EffortLevel;
   advanced?: {
     baseInstructions?: string;
     developerInstructions?: string;
