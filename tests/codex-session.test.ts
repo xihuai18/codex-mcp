@@ -46,7 +46,10 @@ describe("executeCodexSession", () => {
     } as unknown as SessionManager;
 
     await expect(
-      executeCodexSession({ action: "get", sessionId: "sess_2", includeSensitive: true }, sessionManager)
+      executeCodexSession(
+        { action: "get", sessionId: "sess_2", includeSensitive: true },
+        sessionManager
+      )
     ).resolves.toEqual({ sessionId: "sess_2", status: "running" });
     expect(getSession).toHaveBeenCalledWith("sess_2", true);
 

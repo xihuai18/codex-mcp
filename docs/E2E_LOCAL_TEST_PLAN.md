@@ -253,19 +253,20 @@ After `codex` or `codex_reply`:
 
 1. Poll with `codex_check(action="poll")`.
 2. Persist `nextCursor` and pass it back next poll.
-3. If `cursorResetTo` appears, your cursor is stale; continue from `cursorResetTo`.
+3. If `cursorResetTo` appears, your cursor is stale. For the next request, always use the returned `nextCursor` (in no-event cases it is typically equal to `cursorResetTo`).
 4. Terminal statuses are `idle`, `error`, `cancelled`.
 5. `respond_permission` / `respond_user_input` may return compact ACK by default (`events` can be empty). Continue polling for streamed events.
 6. Keep `maxEvents` small per action type:
    - `poll`: defaults to `1`. Increase to `10-20` only for faster catch-up. Sending `0` is normalized to `1` to avoid no-op loops.
    - `respond_*`: defaults to `0` (compact ACK, no event replay). Use `1-5` only when you need immediate events alongside the approval response.
+   - `maxEvents` is a top-level `codex_check` field, not inside `pollOptions`.
 7. `responseMode` defaults to `minimal`. Available modes:
    - `minimal`: smallest payload, key fields only.
    - `delta_compact`: compact delta-focused payload (larger than `minimal`, smaller than `full` in typical streaming turns).
    - `full`: raw complete event payloads for debugging.
 8. `pollOptions.includeEvents/includeActions/includeResult` default to `true`.
 9. When `pollOptions.maxBytes` is set and payload is too large, response can include `truncated=true`, `truncatedFields`, and `compatWarnings`; continue polling with returned `nextCursor`.
-10. `pollOptions.includeTools` is currently a reserved compatibility field; when set to `true`, expect a `compatWarnings` note instead of tool metadata.
+10. `pollOptions.includeTools` is currently a reserved compatibility field; when set to `true`, codex-mcp typically returns a `compatWarnings` note instead of tool metadata (the warning can be omitted under strict `maxBytes` budget).
 11. In `respond_*` flows, if a stale `cursor` is provided, codex-mcp can auto-normalize to session cursor and include a `compatWarnings` notice.
 
 Observed default polling cadence in implementation:
@@ -527,7 +528,7 @@ Stress sequence:
 Expected:
 
 1. `cursorResetTo` appears.
-2. Client restarts from `cursorResetTo` and continues safely.
+2. Client continues from returned `nextCursor` and proceeds safely (this may be equal to `cursorResetTo`).
 
 ## 7.4 Poll Shaping Compatibility (`responseMode` + `pollOptions`)
 
@@ -536,7 +537,7 @@ Checks:
 1. Generate a delta-heavy turn, then poll at the same cursor with `responseMode="minimal"`, `responseMode="delta_compact"`, and `responseMode="full"`.
 2. Compare payload sizes; for this workload, expect `minimal < delta_compact < full`.
 3. Poll once with `pollOptions.includeEvents=false`, then poll again with defaults; verify events were not consumed by the first poll.
-4. Poll with `pollOptions.includeTools=true`; expect `compatWarnings` mentioning unsupported `includeTools` behavior.
+4. Poll with `pollOptions.includeTools=true`; usually expect `compatWarnings` mentioning unsupported `includeTools` behavior (warning may be omitted under tight `maxBytes` limits).
 5. Optional stress: combine very small `pollOptions.maxBytes` with deprecated alias path (`respond_approval`) and verify responses remain valid even if some compatibility warnings are omitted to stay under byte budget.
 6. Optional stale-cursor check for `respond_*`: send a smaller stale cursor than current session progress and verify response remains monotonic (no replay), with compatibility warning when warning budget allows.
 

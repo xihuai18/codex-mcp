@@ -28,7 +28,10 @@ export const RESOURCE_URIS = {
   errors: `${RESOURCE_SCHEME}:///errors`,
 } as const;
 
-type RuntimeMetadataProvider = Pick<SessionManager, "getActiveSessionCount" | "getObservedDefaultModel">;
+type RuntimeMetadataProvider = Pick<
+  SessionManager,
+  "getActiveSessionCount" | "getObservedDefaultModel"
+>;
 
 interface ResourceCatalogEntry {
   key: keyof typeof RESOURCE_URIS;
@@ -223,7 +226,7 @@ function buildGotchasText(): string {
     "",
     "- Top-level `events[].type` is one of: `output`, `progress`, `approval_request`, `approval_result`, `result`, `error`.",
     "- Fine-grained stream semantics are in `events[].data.method` (for example command output delta, reasoning delta, turn updates).",
-    "- Retryable interruptions surface as `progress` with `method=\"codex-mcp/reconnect\"` and include retry fields.",
+    '- Retryable interruptions surface as `progress` with `method="codex-mcp/reconnect"` and include retry fields.',
     "- During reconnect/retry, continue polling normally; if retries stop (`willRetry=false`), session transitions to error path.",
     "",
     "## Windows shell/profile issues",

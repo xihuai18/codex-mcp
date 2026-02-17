@@ -270,6 +270,63 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(result.nextCursor).toBe(result.events[0].id + 1);
   });
 
+  it("keeps session cursor monotonic when poll receives a stale explicit cursor", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_cursor_a",
+      delta: "A",
+    });
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_cursor_b",
+      delta: "B",
+    });
+    client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
+      threadId,
+      turnId: "turn_1",
+      itemId: "item_cursor_c",
+      delta: "C",
+    });
+
+    const poll1 = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 2,
+      },
+      manager
+    ) as { events: Array<{ id: number }>; nextCursor: number };
+    expect(poll1.events).toHaveLength(2);
+    expect(poll1.nextCursor).toBe(2);
+
+    const stalePoll = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 1,
+      },
+      manager
+    ) as { events: Array<{ id: number }>; nextCursor: number };
+    expect(stalePoll.events).toHaveLength(1);
+    expect(stalePoll.events[0]?.id).toBe(0);
+
+    const resumed = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        maxEvents: 1,
+      },
+      manager
+    ) as { events: Array<{ id: number }> };
+    expect(resumed.events).toHaveLength(1);
+    expect(resumed.events[0]?.id).toBe(2);
+  });
+
   it("responds to command approval and clears pending request", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(1, Methods.COMMAND_APPROVAL, {
@@ -302,6 +359,52 @@ describe("SessionManager protocol compatibility + approvals", () => {
     const info = manager.getSession(sessionId);
     expect(info.pendingRequestCount).toBe(0);
     expect(manager.pollEvents(sessionId).actions).toBeUndefined();
+  });
+
+  it("returns INTERNAL and keeps approval pending when forwarding response fails", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(101, Methods.COMMAND_APPROVAL, {
+      itemId: "item_forward_fail_cmd",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    client.respondToServer.mockImplementationOnce(() => {
+      throw new Error("write queue dropped");
+    });
+    const failed = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+      },
+      manager
+    ) as { isError?: boolean; error?: string };
+    expect(failed.isError).toBe(true);
+    expect(failed.error).toContain("INTERNAL");
+
+    const stillPending = manager.pollEvents(sessionId);
+    expect(stillPending.status).toBe("waiting_approval");
+    expect(stillPending.actions?.some((action) => action.requestId === requestId)).toBe(true);
+
+    const retry = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+      },
+      manager
+    );
+    expect((retry as { isError?: boolean }).isError).not.toBe(true);
+    expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
   });
 
   it("uses last poll cursor for respond_approval when cursor is omitted", async () => {
@@ -441,6 +544,51 @@ describe("SessionManager protocol compatibility + approvals", () => {
 
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
     expect(client.respondToServer).toHaveBeenCalledWith(12, { answers });
+    expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
+  });
+
+  it("returns INTERNAL and keeps user_input pending when forwarding response fails", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(102, Methods.USER_INPUT_REQUEST, {
+      itemId: "item_forward_fail_ui",
+      threadId,
+      turnId: "turn_1",
+      questions: [{ questionId: "q1", question: "Pick one" }],
+    });
+
+    const poll1 = manager.pollEvents(sessionId);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    client.respondToServer.mockImplementationOnce(() => {
+      throw new Error("write queue dropped");
+    });
+    const failed = executeCodexCheck(
+      {
+        action: "respond_user_input",
+        sessionId,
+        requestId: requestId!,
+        answers: { q1: { answers: ["A"] } },
+      },
+      manager
+    ) as { isError?: boolean; error?: string };
+    expect(failed.isError).toBe(true);
+    expect(failed.error).toContain("INTERNAL");
+
+    const stillPending = manager.pollEvents(sessionId);
+    expect(stillPending.status).toBe("waiting_approval");
+    expect(stillPending.actions?.some((action) => action.requestId === requestId)).toBe(true);
+
+    const retry = executeCodexCheck(
+      {
+        action: "respond_user_input",
+        sessionId,
+        requestId: requestId!,
+        answers: { q1: { answers: ["A"] } },
+      },
+      manager
+    );
+    expect((retry as { isError?: boolean }).isError).not.toBe(true);
     expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
   });
 
@@ -602,18 +750,14 @@ describe("SessionManager protocol compatibility + approvals", () => {
       manager
     );
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
-    expect((poll2 as { compatWarnings?: string[] }).compatWarnings?.some((w) => w.includes("deprecated"))).toBe(
-      true
-    );
+    expect(
+      (poll2 as { compatWarnings?: string[] }).compatWarnings?.some((w) => w.includes("deprecated"))
+    ).toBe(true);
   });
 
   it("keeps respond_approval payload within maxBytes by dropping alias warning when required", async () => {
-    const { sessionId: baselineSessionId, threadId: baselineThreadId } = await manager.createSession(
-      "hi",
-      workspace,
-      {},
-      "medium"
-    );
+    const { sessionId: baselineSessionId, threadId: baselineThreadId } =
+      await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(43, Methods.COMMAND_APPROVAL, {
       itemId: "item_approval_baseline",
       threadId: baselineThreadId,
@@ -741,7 +885,13 @@ describe("SessionManager protocol compatibility + approvals", () => {
         pollOptions: { maxBytes: 1 },
       },
       manager
-    ) as { events: Array<{ id: number }>; truncated?: boolean; truncatedFields?: string[]; cursorResetTo?: number; nextCursor: number };
+    ) as {
+      events: Array<{ id: number }>;
+      truncated?: boolean;
+      truncatedFields?: string[];
+      cursorResetTo?: number;
+      nextCursor: number;
+    };
 
     expect(truncated.truncated).toBe(true);
     expect(truncated.truncatedFields).toContain("events");
@@ -830,6 +980,54 @@ describe("SessionManager protocol compatibility + approvals", () => {
     ) as { events: Array<{ id: number }> };
     expect(resumed.events).toHaveLength(1);
     expect(resumed.events[0]?.id).toBe(ack.nextCursor);
+  });
+
+  it("keeps actionable approvals under maxBytes by compacting actions while waiting_approval", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(103, Methods.COMMAND_APPROVAL, {
+      itemId: "item_compact_actions",
+      threadId,
+      turnId: "turn_1",
+      command: `echo ${"x".repeat(4000)}`,
+      cwd: workspace,
+    });
+
+    const shaped = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        cursor: 0,
+        maxEvents: 20,
+        pollOptions: {
+          includeEvents: false,
+          maxBytes: 700,
+        },
+      },
+      manager
+    ) as {
+      status: string;
+      actions?: Array<{ requestId: string; params: unknown }>;
+      truncated?: boolean;
+      truncatedFields?: string[];
+    };
+
+    expect(shaped.status).toBe("waiting_approval");
+    expect(shaped.truncated).toBe(true);
+    expect(shaped.truncatedFields).toContain("actions");
+    expect(shaped.actions?.length).toBe(1);
+    expect(shaped.actions?.[0]?.requestId).toBeDefined();
+    expect(shaped.actions?.[0]?.params).toBeUndefined();
+
+    const ack = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId: shaped.actions![0].requestId,
+        decision: "accept",
+      },
+      manager
+    );
+    expect((ack as { isError?: boolean }).isError).not.toBe(true);
   });
 
   it("does not consume events when includeEvents=false", async () => {

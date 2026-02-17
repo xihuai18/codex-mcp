@@ -157,7 +157,7 @@ describe("AppServerClient spawn behavior", () => {
       pid: 4242,
       kill: () => true,
     };
-    internal.writeQueue = ["{\"jsonrpc\":\"2.0\",\"id\":1}\n"];
+    internal.writeQueue = ['{"jsonrpc":"2.0","id":1}\n'];
     internal.queuedBytes = internal.writeQueue[0].length;
 
     const terminateSpy = vi

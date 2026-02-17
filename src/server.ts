@@ -109,19 +109,13 @@ export function createServer(serverCwd: string): McpServer {
           .enum(EFFORT_LEVELS)
           .default(DEFAULT_EFFORT_LEVEL)
           .describe("Reasoning effort (default: low)."),
-        cwd: z
-          .string()
-          .optional()
-          .describe("Working directory (default: server cwd)."),
+        cwd: z.string().optional().describe("Working directory (default: server cwd)."),
         model: z.string().optional().describe("Model override (default: config.toml)"),
         profile: z.string().optional().describe("Profile name (default: CLI default profile)."),
         advanced: z
           .object({
             baseInstructions: z.string().optional().describe("Replace system instructions."),
-            developerInstructions: z
-              .string()
-              .optional()
-              .describe("Extra developer instructions."),
+            developerInstructions: z.string().optional().describe("Extra developer instructions."),
             personality: z
               .enum(PERSONALITIES)
               .optional()
@@ -139,10 +133,7 @@ export function createServer(serverCwd: string): McpServer {
               .record(z.string(), z.unknown())
               .optional()
               .describe("Structured output schema."),
-            images: z
-              .array(z.string())
-              .optional()
-              .describe("Local image paths."),
+            images: z.array(z.string()).optional().describe("Local image paths."),
             approvalTimeoutMs: z
               .number()
               .int()
@@ -194,16 +185,10 @@ export function createServer(serverCwd: string): McpServer {
         sessionId: z.string().describe("Session ID from codex tool"),
         prompt: z.string().describe("Follow-up message"),
         model: z.string().optional().describe("Override model."),
-        approvalPolicy: z
-          .enum(APPROVAL_POLICIES)
-          .optional()
-          .describe("Override approval policy."),
+        approvalPolicy: z.enum(APPROVAL_POLICIES).optional().describe("Override approval policy."),
         effort: z.enum(EFFORT_LEVELS).optional().describe("Override effort."),
         summary: z.enum(SUMMARY_MODES).optional().describe("Override summary."),
-        personality: z
-          .enum(PERSONALITIES)
-          .optional()
-          .describe("Override personality."),
+        personality: z.enum(PERSONALITIES).optional().describe("Override personality."),
         sandbox: z.enum(SANDBOX_MODES).optional().describe("Override sandbox."),
         cwd: z.string().optional().describe("Override cwd."),
         outputSchema: z

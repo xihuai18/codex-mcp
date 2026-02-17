@@ -561,9 +561,6 @@ export class SessionManager {
     }
 
     let nextCursor = events.length > 0 ? events[events.length - 1].id + 1 : cursorFloor;
-    if (includeEvents) {
-      session.lastEventCursor = nextCursor;
-    }
 
     // Collect pending actions
     const actions: CheckResult["actions"] = [];
@@ -609,7 +606,9 @@ export class SessionManager {
     if (typeof maxBytes === "number") {
       const normalizedMaxBytes = Math.max(1, Math.floor(maxBytes));
       const hasAnyPayload =
-        result.events.length > 0 || typeof result.actions !== "undefined" || typeof result.result !== "undefined";
+        result.events.length > 0 ||
+        typeof result.actions !== "undefined" ||
+        typeof result.result !== "undefined";
       if (hasAnyPayload && payloadByteSize(result) > normalizedMaxBytes) {
         const truncatedFields: string[] = [];
 
@@ -618,22 +617,34 @@ export class SessionManager {
             result.events.pop();
           }
           nextCursor =
-            result.events.length > 0 ? result.events[result.events.length - 1]!.id + 1 : cursorFloor;
+            result.events.length > 0
+              ? result.events[result.events.length - 1]!.id + 1
+              : cursorFloor;
           result.nextCursor = nextCursor;
-          if (includeEvents && session.lastEventCursor > nextCursor) {
-            session.lastEventCursor = Math.max(nextCursor, cursorFloor);
-          }
           truncatedFields.push("events");
-        }
-
-        if (typeof result.actions !== "undefined" && payloadByteSize(result) > normalizedMaxBytes) {
-          result.actions = undefined;
-          truncatedFields.push("actions");
         }
 
         if (typeof result.result !== "undefined" && payloadByteSize(result) > normalizedMaxBytes) {
           result.result = undefined;
           truncatedFields.push("result");
+        }
+
+        if (typeof result.actions !== "undefined" && payloadByteSize(result) > normalizedMaxBytes) {
+          if (session.status === "waiting_approval") {
+            result.actions = compactActionsForBudget(result.actions);
+            while (result.actions.length > 1 && payloadByteSize(result) > normalizedMaxBytes) {
+              result.actions.pop();
+            }
+            truncatedFields.push("actions");
+          }
+
+          if (
+            typeof result.actions !== "undefined" &&
+            payloadByteSize(result) > normalizedMaxBytes
+          ) {
+            result.actions = undefined;
+            truncatedFields.push("actions");
+          }
         }
 
         if (truncatedFields.length > 0) {
@@ -646,6 +657,14 @@ export class SessionManager {
           );
         }
       }
+    }
+
+    if (includeEvents) {
+      session.lastEventCursor = persistMonotonicCursor(
+        session.lastEventCursor,
+        result.nextCursor,
+        buf.nextId
+      );
     }
 
     return result;
@@ -722,10 +741,6 @@ export class SessionManager {
       );
     }
 
-    req.resolved = true;
-    req.decision = decision;
-    if (req.timeoutHandle) clearTimeout(req.timeoutHandle);
-
     // Build protocol response
     let response: unknown;
     if (req.kind === "command") {
@@ -734,15 +749,17 @@ export class SessionManager {
       response = { decision } as FileChangeApprovalResponse;
     }
 
-    if (req.respond && response) {
-      try {
-        req.respond(response);
-      } catch (err) {
-        console.error(
-          `[codex-mcp] Failed to send approval response: session=${sessionId} request=${requestId} kind=${req.kind} error=${err instanceof Error ? err.message : String(err)}`
-        );
-      }
+    if (!response) {
+      throw new Error(
+        `Error [${ErrorCode.INTERNAL}]: Failed to build approval response for request '${requestId}'`
+      );
     }
+
+    sendPendingRequestResponseOrThrow(req, response, sessionId, requestId);
+
+    req.resolved = true;
+    req.decision = decision;
+    if (req.timeoutHandle) clearTimeout(req.timeoutHandle);
 
     // Push approval_result event
     pushEvent(
@@ -782,18 +799,15 @@ export class SessionManager {
       );
     }
 
+    sendPendingRequestResponseOrThrow(
+      req,
+      { answers } as UserInputRequestResponse,
+      sessionId,
+      requestId
+    );
+
     req.resolved = true;
     if (req.timeoutHandle) clearTimeout(req.timeoutHandle);
-
-    if (req.respond) {
-      try {
-        req.respond({ answers } as UserInputRequestResponse);
-      } catch (err) {
-        console.error(
-          `[codex-mcp] Failed to send user input response: session=${sessionId} request=${requestId} error=${err instanceof Error ? err.message : String(err)}`
-        );
-      }
-    }
 
     pushEvent(
       session.eventBuffer,
@@ -1360,6 +1374,48 @@ function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
 }
 
+function sendPendingRequestResponseOrThrow(
+  req: PendingRequest,
+  response: unknown,
+  sessionId: string,
+  requestId: string
+): void {
+  if (!req.respond) {
+    throw new Error(
+      `Error [${ErrorCode.INTERNAL}]: Missing response handler for request '${requestId}'`
+    );
+  }
+  try {
+    req.respond(response);
+  } catch (err) {
+    throw new Error(
+      `Error [${ErrorCode.INTERNAL}]: Failed to send response: session=${sessionId} request=${requestId} kind=${req.kind} error=${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+}
+
+function compactActionsForBudget(
+  actions: NonNullable<CheckResult["actions"]>
+): NonNullable<CheckResult["actions"]> {
+  return actions.map((action) => ({
+    type: action.type,
+    requestId: action.requestId,
+    kind: action.kind,
+    params: undefined,
+    itemId: action.itemId,
+    createdAt: action.createdAt,
+  }));
+}
+
+function persistMonotonicCursor(
+  previousCursor: number,
+  nextCursor: number,
+  latestCursor: number
+): number {
+  const boundedCursor = Math.max(0, Math.min(nextCursor, latestCursor));
+  return Math.max(previousCursor, boundedCursor);
+}
+
 function pushEvent(buf: EventBuffer, type: SessionEventType, data: unknown, pinned = false): void {
   if (tryCoalesceProgressDelta(buf, type, data, pinned)) return;
 
@@ -1467,7 +1523,11 @@ function addCompatWarning(result: CheckResult, warning: string): void {
   result.compatWarnings.push(warning);
 }
 
-function addCompatWarningWithinBudget(result: CheckResult, warning: string, maxBytes?: number): void {
+function addCompatWarningWithinBudget(
+  result: CheckResult,
+  warning: string,
+  maxBytes?: number
+): void {
   const previousWarnings = result.compatWarnings ? [...result.compatWarnings] : undefined;
   addCompatWarning(result, warning);
 

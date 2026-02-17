@@ -77,7 +77,10 @@ describe("resources", () => {
     const compatReport = registered.find((r) => r.uri === RESOURCE_URIS.compatReport);
     expect(compatReport?.mimeType).toBe("application/json");
     const compatResult = compatReport?.read() as { contents?: Array<{ text?: string }> };
-    const compatPayload = JSON.parse(compatResult.contents?.[0]?.text ?? "{}") as Record<string, unknown>;
+    const compatPayload = JSON.parse(compatResult.contents?.[0]?.text ?? "{}") as Record<
+      string,
+      unknown
+    >;
     const features = compatPayload.features as Record<string, unknown> | undefined;
     const toolCounts = compatPayload.toolCounts as Record<string, unknown> | undefined;
     expect(compatPayload.schemaVersion).toBe("1.0.0");
@@ -103,7 +106,7 @@ describe("resources", () => {
     const quickstartResult = quickstart?.read() as { contents?: Array<{ text?: string }> };
     const quickstartText = quickstartResult.contents?.[0]?.text ?? "";
     expect(quickstartText).toContain("Minimal flow");
-    expect(quickstartText).toContain("\"action\": \"respond_permission\"");
+    expect(quickstartText).toContain('"action": "respond_permission"');
 
     const errors = registered.find((r) => r.uri === RESOURCE_URIS.errors);
     expect(errors?.mimeType).toBe("text/markdown");
