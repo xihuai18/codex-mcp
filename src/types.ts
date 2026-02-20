@@ -25,12 +25,7 @@ export type SummaryMode = (typeof SUMMARY_MODES)[number];
 export const SESSION_ACTIONS = ["list", "get", "cancel", "interrupt", "fork"] as const;
 export type SessionAction = (typeof SESSION_ACTIONS)[number];
 
-export const CHECK_ACTIONS = [
-  "poll",
-  "respond_permission",
-  "respond_approval",
-  "respond_user_input",
-] as const;
+export const CHECK_ACTIONS = ["poll", "respond_permission", "respond_user_input"] as const;
 export type CheckAction = (typeof CHECK_ACTIONS)[number];
 
 export const RESPONSE_MODES = ["minimal", "delta_compact", "full"] as const;
@@ -41,8 +36,6 @@ export interface PollOptions {
   includeActions?: boolean;
   includeResult?: boolean;
   maxBytes?: number;
-  /** Reserved for future dynamic-tools support. */
-  includeTools?: boolean;
 }
 
 export const APPROVAL_TYPES = ["command", "fileChange"] as const;

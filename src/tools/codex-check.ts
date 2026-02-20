@@ -19,7 +19,7 @@ export interface CodexCheckParams {
   // poll params
   cursor?: number;
   maxEvents?: number;
-  // respond_approval params
+  // respond_permission params
   requestId?: string;
   decision?: string;
   execpolicyAmendment?: string[];
@@ -52,11 +52,10 @@ export function executeCodexCheck(
       });
     }
 
-    case "respond_permission":
-    case "respond_approval": {
+    case "respond_permission": {
       if (!args.requestId || !args.decision) {
         return {
-          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: requestId and decision required for respond_permission/respond_approval`,
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: requestId and decision required for respond_permission`,
           isError: true,
         };
       }
@@ -75,18 +74,10 @@ export function executeCodexCheck(
       // - default to compact ACK (maxEvents=0) to avoid returning large event
       //   payloads on approval/user-input responses.
       const maxEvents = args.maxEvents ?? RESPOND_DEFAULT_MAX_EVENTS;
-      const result = sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, maxEvents, {
+      return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, maxEvents, {
         responseMode,
         pollOptions,
       });
-      if (args.action === "respond_approval") {
-        return addWarning(
-          result,
-          "Action 'respond_approval' is deprecated, use 'respond_permission'.",
-          pollOptions?.maxBytes
-        );
-      }
-      return result;
     }
 
     case "respond_user_input": {
@@ -120,27 +111,4 @@ export function executeCodexCheck(
         isError: true,
       };
   }
-}
-
-function addWarning(result: CheckResult, warning: string, maxBytes?: number): CheckResult {
-  if (!result.compatWarnings) result.compatWarnings = [];
-  result.compatWarnings.push(warning);
-
-  if (typeof maxBytes !== "number") {
-    return result;
-  }
-
-  const normalizedMaxBytes = Math.max(1, Math.floor(maxBytes));
-  if (Buffer.byteLength(JSON.stringify(result), "utf8") <= normalizedMaxBytes) {
-    return result;
-  }
-
-  // Keep pollOptions.maxBytes behavior stable by dropping only the warning we appended.
-  if (result.compatWarnings.length > 1) {
-    result.compatWarnings.pop();
-  } else {
-    result.compatWarnings = undefined;
-  }
-
-  return result;
 }

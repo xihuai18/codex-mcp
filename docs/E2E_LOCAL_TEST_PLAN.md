@@ -25,7 +25,7 @@ Minimum pass target:
 
 1. The server exposes 4 tools and up to 6 resources correctly (minimum 3: `server-info`, `config`, `gotchas`).
 2. `codex` and `codex_reply` are asynchronous (return immediately, then progress via polling).
-3. Approval flow works (`respond_permission`, or deprecated `respond_approval`) and session state changes correctly.
+3. Approval flow works (`respond_permission`) and session state changes correctly.
 4. A real coding task closes the loop: test fails -> agent fixes -> test passes.
 5. Session management works (`list/get/cancel/interrupt/fork`).
 
@@ -278,8 +278,7 @@ After `codex` or `codex_reply`:
    - `full`: raw complete event payloads for debugging.
 8. `pollOptions.includeEvents/includeActions/includeResult` default to `true`.
 9. When `pollOptions.maxBytes` is set and payload is too large, response can include `truncated=true`, `truncatedFields`, and `compatWarnings`; continue polling with returned `nextCursor`.
-10. `pollOptions.includeTools` is currently a reserved compatibility field; when set to `true`, codex-mcp typically returns a `compatWarnings` note instead of tool metadata (the warning can be omitted under strict `maxBytes` budget).
-11. In `respond_*` flows, if a stale `cursor` is provided, codex-mcp can auto-normalize to session cursor and include a `compatWarnings` notice.
+10. In `respond_*` flows, if a stale `cursor` is provided, codex-mcp can auto-normalize to session cursor and include a `compatWarnings` notice.
 
 Observed internal polling cadence (codex-mcp → app-server, NOT MCP client → codex-mcp):
 
@@ -302,7 +301,7 @@ Codex tasks often take 2-10+ minutes. Do not poll every turn.
 
 When `actions[]` is present:
 
-1. Approval actions use `respond_permission` (the MCP tool schema also accepts the deprecated alias `respond_approval` — both work identically). Use whichever your client's tool schema exposes; if both appear, prefer `respond_permission`.
+1. Approval actions use `respond_permission`.
 2. User-input actions use `respond_user_input`.
 3. Do not guess request IDs; always copy the exact `requestId`.
 
@@ -594,9 +593,8 @@ Checks:
 1. Generate a delta-heavy turn, then poll at the same cursor with `responseMode="minimal"`, `responseMode="delta_compact"`, and `responseMode="full"`.
 2. Compare payload sizes; for this workload, expect `minimal < delta_compact < full`.
 3. Poll once with `pollOptions.includeEvents=false`, then poll again with defaults; verify events were not consumed by the first poll.
-4. Poll with `pollOptions.includeTools=true`; usually expect `compatWarnings` mentioning unsupported `includeTools` behavior (warning may be omitted under tight `maxBytes` limits).
-5. Optional stress: combine very small `pollOptions.maxBytes` with deprecated alias path (`respond_approval`) and verify responses remain valid even if some compatibility warnings are omitted to stay under byte budget.
-6. Optional stale-cursor check for `respond_*`: send a smaller stale cursor than current session progress and verify response remains monotonic (no replay), with compatibility warning when warning budget allows.
+4. Optional stress: combine very small `pollOptions.maxBytes` with `respond_*` and verify responses remain valid even if compatibility warnings are omitted to stay under byte budget.
+5. Optional stale-cursor check for `respond_*`: send a smaller stale cursor than current session progress and verify response remains monotonic (no replay), with compatibility warning when warning budget allows.
 
 ## 8. Generic Troubleshooting
 
@@ -622,7 +620,7 @@ Likely cause:
 Fix:
 
 1. Poll again, copy exact `requestId`.
-2. Use `respond_permission` (or deprecated `respond_approval`) / `respond_user_input` with valid payload.
+2. Use `respond_permission` / `respond_user_input` with valid payload.
 
 ## Symptom: Unexpected permission behavior
 
@@ -703,7 +701,7 @@ If you are unsure about any critical behavior, discuss it with Claude Code expli
 Recommended prompts:
 
 1. `I got cursorResetTo=123 while polling session <id>. Show the exact next poll payload I should send and why.`
-2. `For request kind=fileChange, which decisions are legal? Validate this payload before I send respond_permission (or deprecated respond_approval).`
+2. `For request kind=fileChange, which decisions are legal? Validate this payload before I send respond_permission.`
 3. `I used acceptWithExecpolicyAmendment and got INVALID_ARGUMENT. Diagnose which field is missing from my payload.`
 4. `Given this poll output, determine if session is terminal and whether I should continue polling.`
 5. `Convert this content text JSON into a normalized report table with status transitions and approval decisions.`

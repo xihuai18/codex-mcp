@@ -132,7 +132,7 @@ advanced 参数（低频）：
 
 ```
 参数：
-├── action: "poll" | "respond_permission" | "respond_approval"（deprecated） | "respond_user_input"
+├── action: "poll" | "respond_permission" | "respond_user_input"
 ├── sessionId: string
 │
 │ # poll 参数
@@ -144,10 +144,9 @@ advanced 参数（低频）：
 │     includeActions?: boolean  # 默认 true
 │     includeResult?: boolean   # 默认 true
 │     maxBytes?: number         # 默认 unlimited，超限时 best-effort 截断
-│     includeTools?: boolean    # 默认 false，预留字段，当前仅返回 compat warning
 │   }
 │
-│ # respond_permission 参数（respond_approval 兼容别名）
+│ # respond_permission 参数
 ├── requestId?: string       # 审批请求 ID
 ├── decision?: "accept" | "acceptForSession" | "acceptWithExecpolicyAmendment" | "decline" | "cancel"
 ├── execpolicyAmendment?: string[]  # 仅 acceptWithExecpolicyAmendment

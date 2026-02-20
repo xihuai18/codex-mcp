@@ -328,8 +328,6 @@ poll: events since cursor. Default maxEvents=${POLL_DEFAULT_MAX_EVENTS}.
 
 respond_permission: approval decision. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
 
-respond_approval: deprecated alias for respond_permission.
-
 respond_user_input: user-input answers. Default maxEvents=${RESPOND_DEFAULT_MAX_EVENTS} (compact ACK).
 
 events[].type is coarse-grained; details are in events[].data.method.
@@ -375,20 +373,16 @@ cursor omitted => use session last cursor. cursorResetTo => reset and continue.`
               .positive()
               .optional()
               .describe("Default: unlimited. Best-effort response payload cap in bytes."),
-            includeTools: z
-              .boolean()
-              .optional()
-              .describe("Default: false. Reserved for future dynamic tool metadata support."),
           })
           .optional()
           .describe("Optional poll shaping controls."),
-        // respond_permission/respond_approval
+        // respond_permission
         requestId: z.string().optional().describe("Request ID from actions[]"),
         decision: z
           .enum(ALL_DECISIONS)
           .optional()
           .describe(
-            "Approval decision for respond_permission/respond_approval. acceptWithExecpolicyAmendment requires execpolicyAmendment."
+            "Approval decision for respond_permission. acceptWithExecpolicyAmendment requires execpolicyAmendment."
           ),
         execpolicyAmendment: z
           .array(z.string())

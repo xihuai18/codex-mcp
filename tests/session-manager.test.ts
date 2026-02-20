@@ -402,7 +402,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     const requestId = poll1.actions![0].requestId;
     const poll2 = executeCodexCheck(
       {
-        action: "respond_approval",
+        action: "respond_permission",
         sessionId,
         requestId,
         decision: "accept",
@@ -509,7 +509,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(manager.getSession(sessionId).pendingRequestCount).toBe(0);
   });
 
-  it("uses last poll cursor for respond_approval when cursor is omitted", async () => {
+  it("uses last poll cursor for respond_permission when cursor is omitted", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
       threadId,
@@ -531,7 +531,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
 
     const poll2 = executeCodexCheck(
       {
-        action: "respond_approval",
+        action: "respond_permission",
         sessionId,
         requestId: requestId!,
         decision: "accept",
@@ -548,7 +548,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(poll3.events.some((event) => event.type === "approval_result")).toBe(true);
   });
 
-  it("ignores stale explicit cursor in respond_approval and continues incrementally", async () => {
+  it("ignores stale explicit cursor in respond_permission and continues incrementally", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitNotification(Methods.AGENT_MESSAGE_DELTA, {
       threadId,
@@ -570,7 +570,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
 
     const poll2 = executeCodexCheck(
       {
-        action: "respond_approval",
+        action: "respond_permission",
         sessionId,
         requestId: requestId!,
         decision: "accept",
@@ -588,7 +588,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(poll3.events.some((event) => event.type === "approval_result")).toBe(true);
   });
 
-  it("returns events for respond_approval when maxEvents is explicitly provided", async () => {
+  it("returns events for respond_permission when maxEvents is explicitly provided", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(30, Methods.COMMAND_APPROVAL, {
       itemId: "item_approval_explicit",
@@ -604,7 +604,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
 
     const poll2 = executeCodexCheck(
       {
-        action: "respond_approval",
+        action: "respond_permission",
         sessionId,
         requestId: requestId!,
         decision: "accept",
@@ -826,90 +826,6 @@ describe("SessionManager protocol compatibility + approvals", () => {
 
     expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
     expect(client.respondToServer).toHaveBeenCalledWith(41, { decision: "accept" });
-  });
-
-  it("keeps respond_approval as a deprecated alias with compat warning", async () => {
-    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
-    client.emitServerRequest(42, Methods.COMMAND_APPROVAL, {
-      itemId: "item_approval_alias",
-      threadId,
-      turnId: "turn_1",
-      command: "echo hi",
-      cwd: workspace,
-    });
-
-    const poll1 = manager.pollEvents(sessionId, 0, 50);
-    const requestId = poll1.actions?.[0]?.requestId;
-    expect(requestId).toBeDefined();
-
-    const poll2 = executeCodexCheck(
-      {
-        action: "respond_approval",
-        sessionId,
-        requestId: requestId!,
-        decision: "accept",
-      },
-      manager
-    );
-    expect((poll2 as { isError?: boolean }).isError).not.toBe(true);
-    expect(
-      (poll2 as { compatWarnings?: string[] }).compatWarnings?.some((w) => w.includes("deprecated"))
-    ).toBe(true);
-  });
-
-  it("keeps respond_approval payload within maxBytes by dropping alias warning when required", async () => {
-    const { sessionId: baselineSessionId, threadId: baselineThreadId } =
-      await manager.createSession("hi", workspace, {}, "medium");
-    client.emitServerRequest(43, Methods.COMMAND_APPROVAL, {
-      itemId: "item_approval_baseline",
-      threadId: baselineThreadId,
-      turnId: "turn_1",
-      command: "echo hi",
-      cwd: workspace,
-    });
-    const baselinePoll = manager.pollEvents(baselineSessionId, 0, 50);
-    const baselineRequestId = baselinePoll.actions?.[0]?.requestId;
-    expect(baselineRequestId).toBeDefined();
-
-    const baselineResult = executeCodexCheck(
-      {
-        action: "respond_permission",
-        sessionId: baselineSessionId,
-        requestId: baselineRequestId!,
-        decision: "accept",
-        pollOptions: { includeTools: true },
-      },
-      manager
-    );
-    const baselineBytes = Buffer.byteLength(JSON.stringify(baselineResult), "utf8");
-
-    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
-    client.emitServerRequest(44, Methods.COMMAND_APPROVAL, {
-      itemId: "item_approval_alias_limited",
-      threadId,
-      turnId: "turn_1",
-      command: "echo hi",
-      cwd: workspace,
-    });
-    const poll1 = manager.pollEvents(sessionId, 0, 50);
-    const requestId = poll1.actions?.[0]?.requestId;
-    expect(requestId).toBeDefined();
-
-    const poll2 = executeCodexCheck(
-      {
-        action: "respond_approval",
-        sessionId,
-        requestId: requestId!,
-        decision: "accept",
-        pollOptions: { includeTools: true, maxBytes: baselineBytes },
-      },
-      manager
-    ) as { compatWarnings?: string[] };
-
-    const aliasBytes = Buffer.byteLength(JSON.stringify(poll2), "utf8");
-    expect(aliasBytes).toBeLessThanOrEqual(baselineBytes);
-    expect(poll2.compatWarnings?.some((w) => w.includes("includeTools"))).toBe(true);
-    expect(poll2.compatWarnings?.some((w) => w.includes("deprecated"))).not.toBe(true);
   });
 
   it("supports responseMode and keeps payload size minimal < delta_compact < full", async () => {
@@ -1284,19 +1200,6 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(withResult.result).toBeDefined();
   });
 
-  it("returns compat warning when includeTools=true is requested", async () => {
-    const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
-    const poll = executeCodexCheck(
-      {
-        action: "poll",
-        sessionId,
-        pollOptions: { includeTools: true },
-      },
-      manager
-    ) as { compatWarnings?: string[] };
-    expect(poll.compatWarnings?.some((w) => w.includes("includeTools"))).toBe(true);
-  });
-
   it("normalizes null and non-string approval reason to undefined", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
 
@@ -1342,7 +1245,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     const requestId = poll1.actions![0].requestId;
     const out = executeCodexCheck(
       {
-        action: "respond_approval",
+        action: "respond_permission",
         sessionId,
         requestId,
         decision: "acceptWithExecpolicyAmendment",
@@ -1369,7 +1272,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     const requestId = poll1.actions![0].requestId;
     const out = executeCodexCheck(
       {
-        action: "respond_approval",
+        action: "respond_permission",
         sessionId,
         requestId,
         decision: "acceptWithExecpolicyAmendment",

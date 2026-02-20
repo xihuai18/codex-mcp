@@ -208,7 +208,7 @@ Query a running session for events, respond to approval requests, or answer user
 
 | Parameter             | Type     | Required                          | Description                                                                                                                                                                                      |
 | --------------------- | -------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `action`              | string   | Yes                               | `"poll"`, `"respond_permission"`, `"respond_approval"` (deprecated alias), or `"respond_user_input"`                                                                                             |
+| `action`              | string   | Yes                               | `"poll"`, `"respond_permission"`, or `"respond_user_input"`                                                                                                                                    |
 | `sessionId`           | string   | Yes                               | Target session ID                                                                                                                                                                                |
 | `cursor`              | number   | No                                | Event cursor for incremental polling (`action="poll"`). For `respond_*`, codex-mcp applies monotonic cursor progression: `max(cursor, sessionLastCursor)`.                                       |
 | `maxEvents`           | number   | No                                | Keep this small. `poll` default: `1` (minimum `1`; increase only for catch-up). `respond_*` default: `0` (recommended; compact ACK, no event replay).                                            |
@@ -265,7 +265,6 @@ When the agent requests approval or user input, `poll` includes an `actions[]` l
 
 - `respond_permission`: `decision` is one of `accept`, `acceptForSession`, `decline`, `cancel`.
   - For command approvals, `acceptWithExecpolicyAmendment` is supported and requires `execpolicyAmendment`.
-- `respond_approval` is still accepted as a deprecated alias for `respond_permission`.
 - `respond_user_input`: send `answers` keyed by `questionId`.
 
 Pending approvals auto-decline after `advanced.approvalTimeoutMs`.

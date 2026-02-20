@@ -57,12 +57,19 @@ describe("tools/list metadata", () => {
         inputSchema?: { properties?: Record<string, unknown> };
       };
       const codexCheckProps = codexCheck.inputSchema?.properties ?? {};
+      const actionSchema = codexCheckProps.action as { enum?: unknown[] } | undefined;
+      expect(actionSchema?.enum).toContain("respond_permission");
+      expect(actionSchema?.enum).not.toContain("respond_approval");
       const cursorSchema = codexCheckProps.cursor as Record<string, unknown> | undefined;
       expect(cursorSchema).toBeTruthy();
       expect(cursorSchema).not.toHaveProperty("default");
       const maxEventsSchema = codexCheckProps.maxEvents as Record<string, unknown> | undefined;
       expect(maxEventsSchema).toBeTruthy();
       expect(maxEventsSchema).not.toHaveProperty("default");
+      const pollOptionsSchema = codexCheckProps.pollOptions as
+        | { properties?: Record<string, unknown> }
+        | undefined;
+      expect(pollOptionsSchema?.properties).not.toHaveProperty("includeTools");
     } finally {
       await server.close();
     }

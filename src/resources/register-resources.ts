@@ -211,7 +211,6 @@ function buildGotchasText(): string {
     `- Poll default is \`maxEvents=${POLL_DEFAULT_MAX_EVENTS}\` (authoritative: tool schema / constants).`,
     `- Poll enforces minimum \`maxEvents=${POLL_MIN_MAX_EVENTS}\`; sending \`0\` is normalized to \`${POLL_MIN_MAX_EVENTS}\`.`,
     `- \`respond_permission\` and \`respond_user_input\` default to compact ACK with \`maxEvents=${RESPOND_DEFAULT_MAX_EVENTS}\`.`,
-    "- `respond_approval` is a deprecated alias for `respond_permission`.",
     "- Default response mode is `minimal`; use `full` if you need full raw event payloads.",
     "- respond_* uses monotonic cursor handling: `max(cursor, sessionLastCursor)`.",
     "- If `cursorResetTo` is present, your cursor is stale (old events were evicted); restart from that value.",

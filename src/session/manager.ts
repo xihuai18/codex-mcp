@@ -639,14 +639,6 @@ export class SessionManager {
           : undefined,
     };
 
-    if (pollOptions?.includeTools === true) {
-      addCompatWarningWithinBudget(
-        result,
-        "pollOptions.includeTools is not yet supported by codex-mcp; returning no tool metadata.",
-        maxBytes
-      );
-    }
-
     if (typeof maxBytes === "number") {
       const normalizedMaxBytes = Math.max(1, Math.floor(maxBytes));
       const hasAnyPayload =
