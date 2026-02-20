@@ -27,7 +27,7 @@ This repository is a TypeScript (ESM) MCP server that wraps the OpenAI Codex `ap
 | ---------------- | --------------------------------------------- | -------------------- |
 | `codex`          | 启动新 session                                | 仅等 init（~几百ms） |
 | `codex_reply`    | 继续已有 session                              | 立即返回             |
-| `codex_session`  | 管理 session（list/get/cancel/interrupt/fork） | 同步                 |
+| `codex_session`  | 管理 session（list/get/cancel/interrupt/fork/clean_background_terminals） | 同步                 |
 | `codex_check`    | 轮询事件 + 处理审批/用户输入请求（poll/respond_permission/respond_user_input） | 同步                 |
 
 不暴露额外的配置工具、不暴露内部工具代理、不暴露 prompts；保留 6 个静态只读 resources（`server-info`/`compat-report`/`config`/`gotchas`/`quickstart`/`errors`）用于文档与元信息。核心能力仍通过这 4 个工具的参数组合实现。
@@ -88,6 +88,15 @@ This repository is a TypeScript (ESM) MCP server that wraps the OpenAI Codex `ap
 - 文件变更：`accept` / `acceptForSession` / `decline` / `cancel`
 
 **客户端权限配置提醒**：MCP 客户端应根据自身安全策略配置 `approvalPolicy` 和 `sandbox`。
+
+### 7. 接口对齐与升级规范（本次约定）
+
+- **权威来源优先级**：以 `codex app-server` 协议定义与 `codex-schema/` 为准；实现代码与文档必须追随协议。`CHANGELOG` 仅作辅助，不可替代接口对比。
+- **参数同名策略（严格）**：MCP 对外参数名必须与所依赖接口字段名一致。上游是 `snake_case` 就保持 `snake_case`；上游是 `camelCase` 就保持 `camelCase`。
+- **无兼容别名策略**：默认不保留旧参数别名（例如旧 camelCase 到新 snake_case 的双写兼容）。若必须兼容，需明确标注生命周期与移除计划。
+- **Schema 更新策略**：`codex-schema` 可直接按最新 CLI 生成并提交，差异必须体现在 `git diff` 中；生成后需同步校验 `codex-schema/metadata.json`，作为协议基线的一部分。
+- **变更闭环要求**：任何接口字段调整都必须同步到 `src/server.ts`（schema）、tool handler、`SessionManager`、类型定义、README、DESIGN、AGENTS、CHANGELOG、`docs/E2E_LOCAL_TEST_PLAN.md` 与相关测试。
+- **审查方式**：优先并行多智能体探索关键路径；合并前建议做一次独立交叉验证（可通过 `claude-code-mcp` 进行二次审查）。
 
 ## Prerequisites
 

@@ -180,12 +180,12 @@ Send a follow-up message to an existing session.
 
 ### `codex_session` — Manage sessions
 
-List, inspect, cancel, interrupt, or fork sessions.
+List, inspect, cancel, interrupt, fork sessions, or clean background terminals.
 
 | Parameter          | Type    | Required                      | Description                                                            |
 | ------------------ | ------- | ----------------------------- | ---------------------------------------------------------------------- |
-| `action`           | string  | Yes                           | `"list"`, `"get"`, `"cancel"`, `"interrupt"`, or `"fork"`              |
-| `sessionId`        | string  | For get/cancel/interrupt/fork | Target session ID                                                      |
+| `action`           | string  | Yes                           | `"list"`, `"get"`, `"cancel"`, `"interrupt"`, `"fork"`, or `"clean_background_terminals"` |
+| `sessionId`        | string  | For get/cancel/interrupt/fork/clean_background_terminals | Target session ID                                                      |
 | `includeSensitive` | boolean | No                            | Include `cwd`/`profile`/`config`/`threadId` in `get`. Default: `false` |
 
 **Returns:**
@@ -193,6 +193,7 @@ List, inspect, cancel, interrupt, or fork sessions.
 - `action="get"` → `PublicSessionInfo` (or `SensitiveSessionInfo` when `includeSensitive=true`)
 - `action="cancel"|"interrupt"` → `{ success: true, message }`
 - `action="fork"` → `{ sessionId, threadId, status: "idle", pollInterval }`
+- `action="clean_background_terminals"` → `{ success: true, message }`
 
 ```json
 { "action": "list" }
@@ -200,6 +201,7 @@ List, inspect, cancel, interrupt, or fork sessions.
 { "action": "cancel", "sessionId": "sess_abc123" }
 { "action": "interrupt", "sessionId": "sess_abc123" }
 { "action": "fork", "sessionId": "sess_abc123" }
+{ "action": "clean_background_terminals", "sessionId": "sess_abc123" }
 ```
 
 ### `codex_check` — Poll events & respond
@@ -216,7 +218,7 @@ Query a running session for events, respond to approval requests, or answer user
 | `pollOptions`         | object   | No                                | Optional controls: `includeEvents` (default `true`), `includeActions` (default `true`), `includeResult` (default `true`), `maxBytes` (default unlimited)                                         |
 | `requestId`           | string   | For respond_permission/user_input | Request ID from `actions[]`                                                                                                                                                                      |
 | `decision`            | string   | For respond_permission            | For command approvals: `"accept"`, `"acceptForSession"`, `"acceptWithExecpolicyAmendment"`, `"decline"`, `"cancel"`; for file changes: `"accept"`, `"acceptForSession"`, `"decline"`, `"cancel"` |
-| `execpolicyAmendment` | string[] | For acceptWithExecpolicyAmendment | Exec policy amendment list (required when `decision="acceptWithExecpolicyAmendment"`)                                                                                                            |
+| `execpolicy_amendment` | string[] | For acceptWithExecpolicyAmendment | Exec policy amendment list (required when `decision="acceptWithExecpolicyAmendment"`)                                                                                                            |
 | `denyMessage`         | string   | No                                | Internal note on deny (not sent to app-server)                                                                                                                                                   |
 | `answers`             | object   | For respond_user_input            | For `respond_user_input`: `questionId -> { answers: string[] }`                                                                                                                                  |
 
@@ -264,7 +266,7 @@ Approvals/results/errors are pinned to reduce eviction risk.
 When the agent requests approval or user input, `poll` includes an `actions[]` list. Respond with:
 
 - `respond_permission`: `decision` is one of `accept`, `acceptForSession`, `decline`, `cancel`.
-  - For command approvals, `acceptWithExecpolicyAmendment` is supported and requires `execpolicyAmendment`.
+  - For command approvals, `acceptWithExecpolicyAmendment` is supported and requires `execpolicy_amendment`.
 - `respond_user_input`: send `answers` keyed by `questionId`.
 
 Pending approvals auto-decline after `advanced.approvalTimeoutMs`.

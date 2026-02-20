@@ -321,7 +321,7 @@ Decision constraints:
 1. Command approvals accept:
    - `accept`
    - `acceptForSession`
-   - `acceptWithExecpolicyAmendment` (requires `execpolicyAmendment`)
+   - `acceptWithExecpolicyAmendment` (requires `execpolicy_amendment`)
    - `decline`
    - `cancel`
 2. File-change approvals accept:
@@ -445,6 +445,13 @@ Validate:
 3. `action="cancel"` moves to `cancelled`.
 4. `action="interrupt"` works only while active turn is running.
 5. `action="fork"` creates a new session/thread branch.
+6. `action="clean_background_terminals"` returns success and does not crash the session.
+
+Example payload:
+
+```json
+{ "action": "clean_background_terminals", "sessionId": "<SESSION_ID>" }
+```
 
 Interrupt trigger strategy:
 
@@ -472,6 +479,7 @@ Pass criteria:
 1. State changes match action semantics.
 2. No transport crash on management operations.
 3. `interrupt` successfully stops a running turn (or is documented as missed due to timing).
+4. `clean_background_terminals` returns `{ success: true, message }`.
 
 ## TC6 (Optional): Structured Output
 
@@ -571,7 +579,7 @@ Expected:
 Negative checks:
 
 1. Respond with wrong decision type for `fileChange` -> expect `Error [INVALID_ARGUMENT]`.
-2. Use `acceptWithExecpolicyAmendment` without amendment -> expect `Error [INVALID_ARGUMENT]`.
+2. Use `acceptWithExecpolicyAmendment` without `execpolicy_amendment` -> expect `Error [INVALID_ARGUMENT]`.
 3. Reuse resolved `requestId` -> expect `Error [REQUEST_NOT_FOUND]`.
 
 ## 7.3 Cursor Staleness (`cursorResetTo`)

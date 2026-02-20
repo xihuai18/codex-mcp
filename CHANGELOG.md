@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `approvalPolicy`, `sandbox`, and `effort` are now **required** parameters in the `codex` tool — callers must explicitly set based on their own permission level and task complexity
 - `effort` parameter promoted from `advanced.effort` to top-level parameter in the `codex` tool
 - `codex_reply` parameter `sandboxPolicy` renamed to `sandbox`
+- `codex_check` parameter `execpolicyAmendment` renamed to `execpolicy_amendment` to match app-server protocol field naming
 
 ### Changed
 
@@ -23,6 +24,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Approval and user-input timeout timers now call `.unref()` to avoid blocking process exit
 - Documentation aligned with implementation details for event eviction and e2e guidance
 - Tool input defaults are now defined in schema (`cursor`, `maxEvents`, `includeSensitive`, `advanced.approvalTimeoutMs`) and client-facing text avoids duplicated default descriptions
+- `codex_session` adds `clean_background_terminals` action to call `thread/background_terminals/clean`
+- Approval action payloads now expose `approvalId` and `networkApprovalContext` when provided by app-server
 
 ## [0.1.0] - 2026-02-15
 

@@ -5,6 +5,16 @@
 ## 概述
 MCP server，基于 OpenAI Codex app-server JSON-RPC 协议，通过 4 个 MCP 工具和 6 个静态只读 Resources 暴露 Codex agent 能力。
 
+## 接口对齐与升级规范（本次约定）
+
+- 以 `codex app-server` 协议与 `codex-schema/` 为接口真值来源；实现与文档必须对齐该来源。
+- 对依赖接口升级时，先阅读仓库内现有文档，再对照协议/类型定义逐项核对；`CHANGELOG` 只能辅助定位，不作为唯一依据。
+- MCP 对外参数名与上游字段名保持严格同名：`snake_case` 不改成 `camelCase`，`camelCase` 不改成 `snake_case`。
+- 默认不保留旧参数别名兼容层；采用“同名切换 + 文档/测试同步更新”的方式落地变更。
+- `codex-schema` 可直接更新并提交；差异应在 `git diff` 中清晰可审计，并同步校验 `codex-schema/metadata.json`。
+- 接口变更需要同步更新：工具输入 schema、handler、SessionManager、类型定义、README、AGENTS、CHANGELOG、E2E 测试计划与单元测试。
+- 建议使用多智能体并行探索，并在收尾阶段进行一次独立交叉验证，降低漏改风险。
+
 ## 系统架构
 
 > **同平台假设**：本项目假设 MCP 客户端和 codex-mcp 服务端运行在同一台机器上。所有通信使用 stdio（本地 IPC），子进程共享本地文件系统和 `~/.codex/config.toml`，`cwd` 路径指向本地文件系统。
@@ -116,8 +126,8 @@ advanced 参数（低频）：
 
 ```
 参数：
-├── action: "list" | "get" | "cancel" | "interrupt" | "fork"
-├── sessionId?: string          # get/cancel/interrupt/fork 必填
+├── action: "list" | "get" | "cancel" | "interrupt" | "fork" | "clean_background_terminals"
+├── sessionId?: string          # get/cancel/interrupt/fork/clean_background_terminals 必填
 └── includeSensitive?: boolean  # get 时包含敏感信息
 ```
 
@@ -127,6 +137,7 @@ advanced 参数（低频）：
 - `cancel`: 终止会话（发送 abort 信号，终止子进程）
 - `interrupt`: 中断当前轮次但保留会话（发送 `turn/interrupt`，需要 `threadId` + `activeTurnId`，由 SessionManager 自动跟踪）
 - `fork`: 分叉会话（发送 thread/fork，创建新的 app-server 子进程，独立于原会话运行。常用于从某个节点尝试不同方案）
+- `clean_background_terminals`: 请求 app-server 清理该线程关联的后台终端资源
 
 ### 工具 4: `codex_check` — 轮询事件 + 审批响应
 
@@ -149,7 +160,7 @@ advanced 参数（低频）：
 │ # respond_permission 参数
 ├── requestId?: string       # 审批请求 ID
 ├── decision?: "accept" | "acceptForSession" | "acceptWithExecpolicyAmendment" | "decline" | "cancel"
-├── execpolicyAmendment?: string[]  # 仅 acceptWithExecpolicyAmendment
+├── execpolicy_amendment?: string[]  # 仅 acceptWithExecpolicyAmendment
 ├── denyMessage?: string     # 仅用于 codex-mcp 内部事件记录，不发送给 app-server
 │
 │ # respond_user_input 参数
