@@ -26,9 +26,14 @@ describe("executeCodexSession", () => {
     await expect(executeCodexSession({ action: "fork" }, sessionManager)).resolves.toEqual(
       expect.objectContaining({ isError: true, error: expect.stringContaining("INVALID_ARGUMENT") })
     );
+    await expect(
+      executeCodexSession({ action: "clean_background_terminals" }, sessionManager)
+    ).resolves.toEqual(
+      expect.objectContaining({ isError: true, error: expect.stringContaining("INVALID_ARGUMENT") })
+    );
   });
 
-  it("delegates get/cancel/interrupt/fork actions to SessionManager", async () => {
+  it("delegates get/cancel/interrupt/fork/clean_background_terminals actions to SessionManager", async () => {
     const getSession = vi.fn(() => ({ sessionId: "sess_2", status: "running" }));
     const cancelSession = vi.fn(async () => {});
     const interruptSession = vi.fn(async () => {});
@@ -38,11 +43,13 @@ describe("executeCodexSession", () => {
       status: "idle" as const,
       pollInterval: 120000,
     }));
+    const cleanBackgroundTerminals = vi.fn(async () => {});
     const sessionManager = {
       getSession,
       cancelSession,
       interruptSession,
       forkSession,
+      cleanBackgroundTerminals,
     } as unknown as SessionManager;
 
     await expect(
@@ -72,5 +79,16 @@ describe("executeCodexSession", () => {
       pollInterval: 120000,
     });
     expect(forkSession).toHaveBeenCalledWith("sess_2");
+
+    await expect(
+      executeCodexSession(
+        { action: "clean_background_terminals", sessionId: "sess_2" },
+        sessionManager
+      )
+    ).resolves.toEqual({
+      success: true,
+      message: "Background terminals cleaned for session sess_2",
+    });
+    expect(cleanBackgroundTerminals).toHaveBeenCalledWith("sess_2");
   });
 });

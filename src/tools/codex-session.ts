@@ -1,5 +1,5 @@
 /**
- * codex_session tool — manage sessions (list/get/cancel/interrupt/fork).
+ * codex_session tool — manage sessions (list/get/cancel/interrupt/fork/clean_background_terminals).
  */
 import type { SessionManager } from "../session/manager.js";
 import { ErrorCode, type SessionAction } from "../types.js";
@@ -55,6 +55,19 @@ export async function executeCodexSession(
         };
       }
       return await sessionManager.forkSession(args.sessionId);
+
+    case "clean_background_terminals":
+      if (!args.sessionId) {
+        return {
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: sessionId required for 'clean_background_terminals'`,
+          isError: true,
+        };
+      }
+      await sessionManager.cleanBackgroundTerminals(args.sessionId);
+      return {
+        success: true,
+        message: `Background terminals cleaned for session ${args.sessionId}`,
+      };
 
     default:
       return {

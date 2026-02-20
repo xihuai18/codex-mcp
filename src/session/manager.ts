@@ -9,6 +9,7 @@ import { redactPaths } from "../utils/redact.js";
 import { resolveAndValidateFilePath } from "../utils/files.js";
 import {
   type RequestId,
+  type CommandApprovalParams,
   type CommandApprovalResponse,
   type FileChangeApprovalResponse,
   type UserInputRequestResponse,
@@ -483,6 +484,35 @@ export class SessionManager {
     });
   }
 
+  async cleanBackgroundTerminals(sessionId: string): Promise<void> {
+    const session = this.getSessionOrThrow(sessionId);
+    const client = this.getClientOrThrow(sessionId);
+
+    if (session.status === "cancelled") {
+      throw new Error(
+        `Error [${ErrorCode.CANCELLED}]: Session '${sessionId}' has been cancelled and cannot be cleaned`
+      );
+    }
+    if (!session.threadId) {
+      throw new Error(
+        `Error [${ErrorCode.INTERNAL}]: Session '${sessionId}' has no threadId, cannot clean background terminals`
+      );
+    }
+
+    await client.threadBackgroundTerminalsClean({ threadId: session.threadId });
+    session.lastActiveAt = new Date().toISOString();
+    pushEvent(
+      session.eventBuffer,
+      "progress",
+      {
+        method: Methods.THREAD_BACKGROUND_TERMINALS_CLEAN,
+        threadId: session.threadId,
+        status: "requested",
+      },
+      true
+    );
+  }
+
   async forkSession(sessionId: string): Promise<SessionStartResult> {
     const session = this.getSessionOrThrow(sessionId);
     const originalClient = this.getClientOrThrow(sessionId);
@@ -618,6 +648,8 @@ export class SessionManager {
             params: req.params,
             itemId: req.itemId,
             reason: req.reason,
+            approvalId: req.approvalId,
+            networkApprovalContext: req.networkApprovalContext,
             createdAt: req.createdAt,
           });
         }
@@ -741,7 +773,7 @@ export class SessionManager {
     sessionId: string,
     requestId: string,
     decision: string,
-    extra?: { execpolicyAmendment?: string[]; denyMessage?: string }
+    extra?: { execpolicy_amendment?: string[]; denyMessage?: string }
   ): void {
     const session = this.getSessionOrThrow(sessionId);
     const req = session.pendingRequests.get(requestId);
@@ -761,10 +793,10 @@ export class SessionManager {
       }
       if (
         decision === "acceptWithExecpolicyAmendment" &&
-        (!extra?.execpolicyAmendment || extra.execpolicyAmendment.length === 0)
+        (!extra?.execpolicy_amendment || extra.execpolicy_amendment.length === 0)
       ) {
         throw new Error(
-          `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicyAmendment required for acceptWithExecpolicyAmendment`
+          `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicy_amendment required for acceptWithExecpolicyAmendment`
         );
       }
     } else if (req.kind === "fileChange") {
@@ -782,7 +814,7 @@ export class SessionManager {
     // Build protocol response
     let response: unknown;
     if (req.kind === "command") {
-      response = buildCommandApprovalResponse(decision, extra?.execpolicyAmendment);
+      response = buildCommandApprovalResponse(decision, extra?.execpolicy_amendment);
     } else if (req.kind === "fileChange") {
       response = { decision } as FileChangeApprovalResponse;
     }
@@ -806,6 +838,8 @@ export class SessionManager {
       {
         requestId,
         kind: req.kind,
+        approvalId: req.approvalId,
+        networkApprovalContext: req.networkApprovalContext,
         decision,
         denyMessage: extra?.denyMessage,
       },
@@ -853,6 +887,8 @@ export class SessionManager {
       {
         requestId,
         kind: "user_input",
+        approvalId: req.approvalId,
+        networkApprovalContext: req.networkApprovalContext,
         answers,
       },
       true
@@ -923,12 +959,43 @@ export class SessionManager {
       const p = params as Record<string, unknown>;
 
       switch (method) {
+        case Methods.THREAD_STARTED: {
+          const thread = isRecord(p.thread) ? p.thread : undefined;
+          pushEvent(session.eventBuffer, "progress", {
+            method,
+            ...p,
+            threadId: normalizeOptionalString(p.threadId) ?? normalizeOptionalString(thread?.id),
+            status: normalizeOptionalString(thread?.status),
+          });
+          break;
+        }
+
+        case Methods.THREAD_ARCHIVED:
+        case Methods.THREAD_UNARCHIVED:
+        case Methods.THREAD_NAME_UPDATED:
+        case Methods.THREAD_TOKEN_USAGE_UPDATED:
+        case Methods.FUZZY_FILE_SEARCH_SESSION_UPDATED:
+        case Methods.FUZZY_FILE_SEARCH_SESSION_COMPLETED:
+        case Methods.WINDOWS_WORLD_WRITABLE_WARNING:
+        case Methods.ACCOUNT_LOGIN_COMPLETED:
+          pushEvent(session.eventBuffer, "progress", { method, ...p });
+          break;
+
         case Methods.TURN_STARTED:
           if (session.status === "cancelled") break;
-          session.activeTurnId =
-            ((p.turn as Record<string, unknown>)?.id as string | undefined) ??
-            (typeof p.turnId === "string" ? p.turnId : undefined);
-          pushEvent(session.eventBuffer, "progress", { method, ...p });
+          {
+            const turnObj = p.turn as Record<string, unknown> | undefined;
+            const status = normalizeOptionalString(turnObj?.status);
+            session.activeTurnId =
+              (normalizeOptionalString(turnObj?.id) as string | undefined) ??
+              (typeof p.turnId === "string" ? p.turnId : undefined);
+            pushEvent(session.eventBuffer, "progress", {
+              method,
+              ...p,
+              turnId: session.activeTurnId,
+              status,
+            });
+          }
           break;
 
         case Methods.TURN_COMPLETED: {
@@ -950,7 +1017,17 @@ export class SessionManager {
             turnError: turnObj?.error,
             completedAt: new Date().toISOString(),
           };
-          pushEvent(session.eventBuffer, "result", { method, ...p }, true);
+          pushEvent(
+            session.eventBuffer,
+            "result",
+            {
+              method,
+              ...p,
+              turnId: completedTurnId,
+              status: normalizeOptionalString(turnObj?.status),
+            },
+            true
+          );
           break;
         }
 
@@ -987,14 +1064,22 @@ export class SessionManager {
           pushEvent(session.eventBuffer, "output", { method, delta: p.delta, itemId: p.itemId });
           break;
 
+        case Methods.ITEM_STARTED:
         case Methods.ITEM_COMPLETED:
+        case Methods.RAW_RESPONSE_ITEM_COMPLETED:
           {
             const item = p.item as Record<string, unknown> | undefined;
             const itemType = item && typeof item.type === "string" ? item.type : undefined;
+            const status = normalizeOptionalString(item?.status);
             // Keep user/agent message-like items as output; everything else is progress.
             const eventType: SessionEventType =
               itemType === "agentMessage" || itemType === "userMessage" ? "output" : "progress";
-            pushEvent(session.eventBuffer, eventType, { method, item: p.item });
+            pushEvent(session.eventBuffer, eventType, {
+              method,
+              ...p,
+              item: p.item,
+              status,
+            });
           }
           break;
 
@@ -1009,14 +1094,16 @@ export class SessionManager {
           }
           break;
         }
+        case Methods.COMMAND_TERMINAL_INTERACTION:
         case Methods.FILE_CHANGE_OUTPUT_DELTA:
         case Methods.REASONING_TEXT_DELTA:
         case Methods.REASONING_SUMMARY_DELTA:
+        case Methods.REASONING_SUMMARY_PART_ADDED:
         case Methods.PLAN_DELTA:
         case Methods.MCP_TOOL_PROGRESS:
-        case Methods.ITEM_STARTED:
         case Methods.TURN_DIFF_UPDATED:
         case Methods.TURN_PLAN_UPDATED:
+        case Methods.MODEL_REROUTED:
           pushEvent(session.eventBuffer, "progress", { method, ...p });
           break;
 
@@ -1040,15 +1127,23 @@ export class SessionManager {
       switch (method) {
         case Methods.COMMAND_APPROVAL: {
           const requestId = `req_${randomUUID().slice(0, 8)}`;
-          const reason = normalizeOptionalString(p.reason);
+          const approvalParams = params as CommandApprovalParams & Record<string, unknown>;
+          const reason = normalizeOptionalString(approvalParams.reason);
+          const approvalId = normalizeOptionalString(
+            approvalParams.approvalId ?? approvalParams.approval_id
+          );
+          const networkApprovalContext =
+            approvalParams.networkApprovalContext ?? approvalParams.network_approval_context;
           const pending: PendingRequest = {
             requestId,
             kind: "command",
             params,
-            itemId: p.itemId as string,
-            threadId: p.threadId as string,
-            turnId: p.turnId as string,
+            itemId: normalizeOptionalString(approvalParams.itemId) ?? "",
+            threadId: normalizeOptionalString(approvalParams.threadId) ?? "",
+            turnId: normalizeOptionalString(approvalParams.turnId) ?? "",
             reason,
+            approvalId,
+            networkApprovalContext,
             createdAt: new Date().toISOString(),
             resolved: false,
             respond: (result) => client.respondToServer(id, result),
@@ -1072,6 +1167,7 @@ export class SessionManager {
                 {
                   requestId,
                   kind: "command",
+                  approvalId,
                   decision: "decline",
                   timeout: true,
                 },
@@ -1092,9 +1188,12 @@ export class SessionManager {
             {
               requestId,
               kind: "command",
-              command: p.command,
-              cwd: p.cwd,
+              itemId: approvalParams.itemId,
+              approvalId,
+              command: approvalParams.command,
+              cwd: approvalParams.cwd,
               reason,
+              networkApprovalContext,
             },
             true
           );
@@ -1767,18 +1866,18 @@ function toSensitiveInfo(session: SessionInfo): SensitiveSessionInfo {
 
 function buildCommandApprovalResponse(
   decision: string,
-  execpolicyAmendment?: string[]
+  execpolicy_amendment?: string[]
 ): CommandApprovalResponse {
   if (decision === "acceptWithExecpolicyAmendment") {
-    if (!execpolicyAmendment || execpolicyAmendment.length === 0) {
+    if (!execpolicy_amendment || execpolicy_amendment.length === 0) {
       throw new Error(
-        `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicyAmendment required for acceptWithExecpolicyAmendment`
+        `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicy_amendment required for acceptWithExecpolicyAmendment`
       );
     }
     return {
       decision: {
         acceptWithExecpolicyAmendment: {
-          execpolicy_amendment: execpolicyAmendment,
+          execpolicy_amendment,
         },
       },
     };

@@ -236,16 +236,20 @@ export function createServer(serverCwd: string): McpServer {
     "codex_session",
     {
       title: "Manage Sessions",
-      description: `Session actions: list, get, cancel, interrupt, fork.
+      description: `Session actions: list, get, cancel, interrupt, fork, clean_background_terminals.
 
 - list: sessions in memory.
 - get: details. includeSensitive defaults to false; true adds threadId/cwd/profile/config.
 - cancel: terminal.
 - interrupt: stop current turn.
-- fork: clone current thread into a new session; source remains unchanged.`,
+- fork: clone current thread into a new session; source remains unchanged.
+- clean_background_terminals: ask app-server to clean stale background terminals for this thread.`,
       inputSchema: {
         action: z.enum(SESSION_ACTIONS),
-        sessionId: z.string().optional().describe("Required for get/cancel/interrupt/fork"),
+        sessionId: z
+          .string()
+          .optional()
+          .describe("Required for get/cancel/interrupt/fork/clean_background_terminals"),
         includeSensitive: z
           .boolean()
           .default(false)
@@ -382,9 +386,9 @@ cursor omitted => use session last cursor. cursorResetTo => reset and continue.`
           .enum(ALL_DECISIONS)
           .optional()
           .describe(
-            "Approval decision for respond_permission. acceptWithExecpolicyAmendment requires execpolicyAmendment."
+            "Approval decision for respond_permission. acceptWithExecpolicyAmendment requires execpolicy_amendment."
           ),
-        execpolicyAmendment: z
+        execpolicy_amendment: z
           .array(z.string())
           .optional()
           .describe("For acceptWithExecpolicyAmendment only"),

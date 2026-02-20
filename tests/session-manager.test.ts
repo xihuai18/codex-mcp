@@ -1249,7 +1249,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
         sessionId,
         requestId,
         decision: "acceptWithExecpolicyAmendment",
-        execpolicyAmendment: ["allow:rm"],
+        execpolicy_amendment: ["allow:rm"],
       },
       manager
     );
@@ -1258,7 +1258,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect((out as { error?: string }).error).toContain("INVALID_ARGUMENT");
   });
 
-  it("requires execpolicyAmendment for acceptWithExecpolicyAmendment", async () => {
+  it("requires execpolicy_amendment for acceptWithExecpolicyAmendment", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(3, Methods.COMMAND_APPROVAL, {
       itemId: "item_cmd_2",
@@ -1276,13 +1276,13 @@ describe("SessionManager protocol compatibility + approvals", () => {
         sessionId,
         requestId,
         decision: "acceptWithExecpolicyAmendment",
-        // missing execpolicyAmendment
+        // missing execpolicy_amendment
       },
       manager
     );
 
     expect((out as { isError?: boolean }).isError).toBe(true);
-    expect((out as { error?: string }).error).toContain("execpolicyAmendment required");
+    expect((out as { error?: string }).error).toContain("execpolicy_amendment required");
   });
 
   it("auto-declines approvals after approvalTimeoutMs and clears pending", async () => {

@@ -41,6 +41,7 @@ describe("tools/list metadata", () => {
       const codexSessionDesc = byName.get("codex_session") as { description?: string };
       expect(codexSessionDesc.description).toContain("includeSensitive defaults to false");
       expect(codexSessionDesc.description).toContain("source remains unchanged");
+      expect(codexSessionDesc.description).toContain("clean_background_terminals");
 
       const codexCheckDesc = byName.get("codex_check") as { description?: string };
       expect(codexCheckDesc.description).toContain("Default maxEvents=1");
@@ -60,6 +61,8 @@ describe("tools/list metadata", () => {
       const actionSchema = codexCheckProps.action as { enum?: unknown[] } | undefined;
       expect(actionSchema?.enum).toContain("respond_permission");
       expect(actionSchema?.enum).not.toContain("respond_approval");
+      expect(codexCheckProps).toHaveProperty("execpolicy_amendment");
+      expect(codexCheckProps).not.toHaveProperty("execpolicyAmendment");
       const cursorSchema = codexCheckProps.cursor as Record<string, unknown> | undefined;
       expect(cursorSchema).toBeTruthy();
       expect(cursorSchema).not.toHaveProperty("default");

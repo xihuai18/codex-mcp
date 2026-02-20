@@ -97,6 +97,10 @@ export interface ThreadResumeResultV2 {
 }
 export type ThreadResumeResult = ThreadResumeResultV1 | ThreadResumeResultV2;
 
+export interface ThreadBackgroundTerminalsCleanParams {
+  threadId: string;
+}
+
 // ── SandboxPolicy ──────────────────────────────────────────────────
 
 export type SandboxPolicy =
@@ -158,6 +162,11 @@ export interface TurnInterruptParams {
 // ── Approval Requests (server → client) ────────────────────────────
 
 export interface CommandApprovalParams {
+  /**
+   * Optional per-callback approval id.
+   * Present for subcommand approvals (execve intercept), null/absent for regular approvals.
+   */
+  approvalId?: string | null;
   itemId: string;
   threadId: string;
   turnId: string;
@@ -166,6 +175,10 @@ export interface CommandApprovalParams {
   reason?: string | null;
   commandActions?: unknown[] | null;
   proposedExecpolicyAmendment?: string[] | null;
+  /** Optional context for network approval prompts. */
+  networkApprovalContext?: unknown;
+  /** Legacy snake_case compatibility from rollout/event payloads. */
+  network_approval_context?: unknown;
 }
 
 export type CommandApprovalDecision =
@@ -251,6 +264,10 @@ export interface ItemNotificationParams {
   item: unknown;
 }
 
+export interface ThreadStateNotificationParams {
+  threadId: string;
+}
+
 export interface TurnNotificationParams {
   threadId: string;
   turn: unknown;
@@ -282,6 +299,7 @@ export const Methods = {
   THREAD_START: "thread/start",
   THREAD_RESUME: "thread/resume",
   THREAD_FORK: "thread/fork",
+  THREAD_BACKGROUND_TERMINALS_CLEAN: "thread/backgroundTerminals/clean",
   TURN_START: "turn/start",
   TURN_INTERRUPT: "turn/interrupt",
   TURN_STEER: "turn/steer",
@@ -298,18 +316,30 @@ export const Methods = {
   // Server → Client notifications
   ERROR: "error",
   THREAD_STARTED: "thread/started",
+  THREAD_ARCHIVED: "thread/archived",
+  THREAD_UNARCHIVED: "thread/unarchived",
+  THREAD_NAME_UPDATED: "thread/name/updated",
+  THREAD_TOKEN_USAGE_UPDATED: "thread/tokenUsage/updated",
   TURN_STARTED: "turn/started",
   TURN_COMPLETED: "turn/completed",
   TURN_DIFF_UPDATED: "turn/diff/updated",
   TURN_PLAN_UPDATED: "turn/plan/updated",
   ITEM_STARTED: "item/started",
   ITEM_COMPLETED: "item/completed",
+  RAW_RESPONSE_ITEM_COMPLETED: "rawResponseItem/completed",
   AGENT_MESSAGE_DELTA: "item/agentMessage/delta",
   COMMAND_OUTPUT_DELTA: "item/commandExecution/outputDelta",
+  COMMAND_TERMINAL_INTERACTION: "item/commandExecution/terminalInteraction",
   FILE_CHANGE_OUTPUT_DELTA: "item/fileChange/outputDelta",
   REASONING_TEXT_DELTA: "item/reasoning/textDelta",
   REASONING_SUMMARY_DELTA: "item/reasoning/summaryTextDelta",
+  REASONING_SUMMARY_PART_ADDED: "item/reasoning/summaryPartAdded",
   PLAN_DELTA: "item/plan/delta",
   MCP_TOOL_PROGRESS: "item/mcpToolCall/progress",
+  MODEL_REROUTED: "model/rerouted",
+  FUZZY_FILE_SEARCH_SESSION_UPDATED: "fuzzyFileSearch/sessionUpdated",
+  FUZZY_FILE_SEARCH_SESSION_COMPLETED: "fuzzyFileSearch/sessionCompleted",
+  WINDOWS_WORLD_WRITABLE_WARNING: "windows/worldWritableWarning",
+  ACCOUNT_LOGIN_COMPLETED: "account/login/completed",
   SESSION_CONFIGURED: "sessionConfigured",
 } as const;

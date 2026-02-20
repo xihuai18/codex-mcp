@@ -22,7 +22,14 @@ export type EffortLevel = (typeof EFFORT_LEVELS)[number];
 export const SUMMARY_MODES = ["auto", "concise", "detailed", "none"] as const;
 export type SummaryMode = (typeof SUMMARY_MODES)[number];
 
-export const SESSION_ACTIONS = ["list", "get", "cancel", "interrupt", "fork"] as const;
+export const SESSION_ACTIONS = [
+  "list",
+  "get",
+  "cancel",
+  "interrupt",
+  "fork",
+  "clean_background_terminals",
+] as const;
 export type SessionAction = (typeof SESSION_ACTIONS)[number];
 
 export const CHECK_ACTIONS = ["poll", "respond_permission", "respond_user_input"] as const;
@@ -101,6 +108,8 @@ export interface PendingRequest {
   threadId: string;
   turnId: string;
   reason?: string;
+  approvalId?: string;
+  networkApprovalContext?: unknown;
   createdAt: string;
   resolved: boolean;
   decision?: string;
@@ -197,6 +206,8 @@ export interface CheckResult {
     params: unknown;
     itemId: string;
     reason?: string;
+    approvalId?: string;
+    networkApprovalContext?: unknown;
     createdAt: string;
   }>;
   result?: TurnResult;

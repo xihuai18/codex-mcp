@@ -22,7 +22,7 @@ export interface CodexCheckParams {
   // respond_permission params
   requestId?: string;
   decision?: string;
-  execpolicyAmendment?: string[];
+  execpolicy_amendment?: string[];
   denyMessage?: string;
   // respond_user_input params
   answers?: Record<string, { answers: string[] }>;
@@ -61,7 +61,7 @@ export function executeCodexCheck(
       }
       try {
         sessionManager.resolveApproval(args.sessionId, args.requestId, args.decision, {
-          execpolicyAmendment: args.execpolicyAmendment,
+          execpolicy_amendment: args.execpolicy_amendment,
           denyMessage: args.denyMessage,
         });
       } catch (err: unknown) {

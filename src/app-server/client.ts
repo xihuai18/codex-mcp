@@ -21,6 +21,7 @@ import {
   type ThreadForkResult,
   type ThreadResumeParams,
   type ThreadResumeResult,
+  type ThreadBackgroundTerminalsCleanParams,
   type TurnStartParams,
   type TurnStartResult,
   type TurnInterruptParams,
@@ -178,6 +179,12 @@ export class AppServerClient extends EventEmitter {
 
   async threadResume(params: ThreadResumeParams): Promise<ThreadResumeResult> {
     return this.request<ThreadResumeResult>(Methods.THREAD_RESUME, params);
+  }
+
+  async threadBackgroundTerminalsClean(
+    params: ThreadBackgroundTerminalsCleanParams
+  ): Promise<Record<string, never>> {
+    return this.request<Record<string, never>>(Methods.THREAD_BACKGROUND_TERMINALS_CLEAN, params);
   }
 
   async turnStart(
