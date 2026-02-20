@@ -64,6 +64,16 @@
               "type": "null"
             }
           ]
+        },
+        "network": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/NetworkRequirements"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },

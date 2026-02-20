@@ -488,7 +488,8 @@
           "type": "string",
           "enum": [
             "review",
-            "compact"
+            "compact",
+            "memory_consolidation"
           ]
         },
         {

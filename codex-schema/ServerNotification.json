@@ -54,6 +54,46 @@
         "method": {
           "type": "string",
           "enum": [
+            "thread/archived"
+          ],
+          "title": "Thread/archivedNotificationMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadArchivedNotification"
+        }
+      },
+      "title": "Thread/archivedNotification"
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "thread/unarchived"
+          ],
+          "title": "Thread/unarchivedNotificationMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadUnarchivedNotification"
+        }
+      },
+      "title": "Thread/unarchivedNotification"
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
             "thread/name/updated"
           ],
           "title": "Thread/name/updatedNotificationMethod"
@@ -517,6 +557,26 @@
         "method": {
           "type": "string",
           "enum": [
+            "model/rerouted"
+          ],
+          "title": "Model/reroutedNotificationMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/ModelReroutedNotification"
+        }
+      },
+      "title": "Model/reroutedNotification"
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
             "deprecationNotice"
           ],
           "title": "DeprecationNoticeNotificationMethod"
@@ -546,6 +606,46 @@
         }
       },
       "title": "ConfigWarningNotification"
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "fuzzyFileSearch/sessionUpdated"
+          ],
+          "title": "FuzzyFileSearch/sessionUpdatedNotificationMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/FuzzyFileSearchSessionUpdatedNotification"
+        }
+      },
+      "title": "FuzzyFileSearch/sessionUpdatedNotification"
+    },
+    {
+      "type": "object",
+      "required": [
+        "method",
+        "params"
+      ],
+      "properties": {
+        "method": {
+          "type": "string",
+          "enum": [
+            "fuzzyFileSearch/sessionCompleted"
+          ],
+          "title": "FuzzyFileSearch/sessionCompletedNotificationMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/FuzzyFileSearchSessionCompletedNotification"
+        }
+      },
+      "title": "FuzzyFileSearch/sessionCompletedNotification"
     },
     {
       "description": "Notifies the user of world-writable directories on Windows, which cannot be protected by the sandbox.",
@@ -816,6 +916,48 @@
         }
       ]
     },
+    "AppBranding": {
+      "description": "EXPERIMENTAL - app metadata returned by app-list APIs.",
+      "type": "object",
+      "required": [
+        "isDiscoverableApp"
+      ],
+      "properties": {
+        "category": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "developer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "isDiscoverableApp": {
+          "type": "boolean"
+        },
+        "privacyPolicy": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "termsOfService": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "website": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
     "AppInfo": {
       "description": "EXPERIMENTAL - app metadata returned by app-list APIs.",
       "type": "object",
@@ -824,6 +966,26 @@
         "name"
       ],
       "properties": {
+        "appMetadata": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AppMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "branding": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AppBranding"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
         "description": {
           "type": [
             "string",
@@ -848,6 +1010,20 @@
         "isAccessible": {
           "default": false,
           "type": "boolean"
+        },
+        "isEnabled": {
+          "description": "Whether this app is enabled in config.toml. Example: ```toml [apps.bad_app] enabled = false ```",
+          "default": true,
+          "type": "boolean"
+        },
+        "labels": {
+          "type": [
+            "object",
+            "null"
+          ],
+          "additionalProperties": {
+            "type": "string"
+          }
         },
         "logoUrl": {
           "type": [
@@ -881,6 +1057,130 @@
         }
       }
     },
+    "AppMetadata": {
+      "type": "object",
+      "properties": {
+        "categories": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "developer": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "firstPartyRequiresInstall": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "firstPartyType": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "review": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/AppReview"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "screenshots": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/AppScreenshot"
+          }
+        },
+        "seoDescription": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "showInComposerWhenUnlinked": {
+          "type": [
+            "boolean",
+            "null"
+          ]
+        },
+        "subCategories": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          }
+        },
+        "version": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "versionId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "versionNotes": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "AppReview": {
+      "type": "object",
+      "required": [
+        "status"
+      ],
+      "properties": {
+        "status": {
+          "type": "string"
+        }
+      }
+    },
+    "AppScreenshot": {
+      "type": "object",
+      "required": [
+        "userPrompt"
+      ],
+      "properties": {
+        "fileId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "userPrompt": {
+          "type": "string"
+        }
+      }
+    },
     "AskForApproval": {
       "description": "Determines the conditions under which the user is consulted to approve running the command proposed by Codex.",
       "oneOf": [
@@ -892,7 +1192,7 @@
           ]
         },
         {
-          "description": "*All* commands are auto‑approved, but they are expected to run inside a sandbox where network access is disabled and writes are confined to a specific set of paths. If the command fails, it will be escalated to the user to approve execution without a sandbox.",
+          "description": "DEPRECATED: *All* commands are auto‑approved, but they are expected to run inside a sandbox where network access is disabled and writes are confined to a specific set of paths. If the command fails, it will be escalated to the user to approve execution without a sandbox. Prefer `OnRequest` for interactive runs or `Never` for non-interactive runs.",
           "type": "string",
           "enum": [
             "on-failure"
@@ -1741,6 +2041,35 @@
           "title": "WarningEventMsg"
         },
         {
+          "description": "Model routing changed from the requested model to a different model.",
+          "type": "object",
+          "required": [
+            "from_model",
+            "reason",
+            "to_model",
+            "type"
+          ],
+          "properties": {
+            "from_model": {
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/ModelRerouteReason2"
+            },
+            "to_model": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "model_reroute"
+              ],
+              "title": "ModelRerouteEventMsgType"
+            }
+          },
+          "title": "ModelRerouteEventMsg"
+        },
+        {
           "description": "Conversation history was compacted (either automatically or manually).",
           "type": "object",
           "required": [
@@ -2558,6 +2887,7 @@
             "exit_code",
             "formatted_output",
             "parsed_cmd",
+            "status",
             "stderr",
             "stdout",
             "turn_id",
@@ -2630,6 +2960,14 @@
                 }
               ]
             },
+            "status": {
+              "description": "Completion status for this command execution.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ExecCommandStatus"
+                }
+              ]
+            },
             "stderr": {
               "description": "Captured stderr",
               "type": "string"
@@ -2689,8 +3027,15 @@
             "type"
           ],
           "properties": {
+            "approval_id": {
+              "description": "Identifier for this specific approval callback.\n\nWhen absent, the approval is for the command item itself (`call_id`). This is present for subcommand approvals (via execve intercept).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "call_id": {
-              "description": "Identifier for the associated exec call, if available.",
+              "description": "Identifier for the associated command execution item.",
               "type": "string"
             },
             "command": {
@@ -2703,6 +3048,17 @@
             "cwd": {
               "description": "The command's working directory.",
               "type": "string"
+            },
+            "network_approval_context": {
+              "description": "Optional network context for a blocked request that can be approved.",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/NetworkApprovalContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "parsed_cmd": {
               "type": "array",
@@ -3062,6 +3418,7 @@
           "type": "object",
           "required": [
             "call_id",
+            "status",
             "stderr",
             "stdout",
             "success",
@@ -3079,6 +3436,14 @@
               "additionalProperties": {
                 "$ref": "#/definitions/FileChange"
               }
+            },
+            "status": {
+              "description": "Completion status for this patch application.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PatchApplyStatus2"
+                }
+              ]
             },
             "stderr": {
               "description": "Captured stderr (parser errors, IO failures, etc.).",
@@ -4140,6 +4505,14 @@
         "unified_exec_interaction"
       ]
     },
+    "ExecCommandStatus": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "failed",
+        "declined"
+      ]
+    },
     "ExecOutputStream": {
       "type": "string",
       "enum": [
@@ -4332,6 +4705,76 @@
             "boolean",
             "null"
           ]
+        }
+      }
+    },
+    "FuzzyFileSearchResult": {
+      "description": "Superset of [`codex_file_search::FileMatch`]",
+      "type": "object",
+      "required": [
+        "file_name",
+        "path",
+        "root",
+        "score"
+      ],
+      "properties": {
+        "file_name": {
+          "type": "string"
+        },
+        "indices": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0.0
+          }
+        },
+        "path": {
+          "type": "string"
+        },
+        "root": {
+          "type": "string"
+        },
+        "score": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0.0
+        }
+      }
+    },
+    "FuzzyFileSearchSessionCompletedNotification": {
+      "type": "object",
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      }
+    },
+    "FuzzyFileSearchSessionUpdatedNotification": {
+      "type": "object",
+      "required": [
+        "files",
+        "query",
+        "sessionId"
+      ],
+      "properties": {
+        "files": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/FuzzyFileSearchResult"
+          }
+        },
+        "query": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
         }
       }
     },
@@ -4749,12 +5192,75 @@
         "default"
       ]
     },
+    "ModelRerouteReason": {
+      "type": "string",
+      "enum": [
+        "highRiskCyberActivity"
+      ]
+    },
+    "ModelRerouteReason2": {
+      "type": "string",
+      "enum": [
+        "high_risk_cyber_activity"
+      ]
+    },
+    "ModelReroutedNotification": {
+      "type": "object",
+      "required": [
+        "fromModel",
+        "reason",
+        "threadId",
+        "toModel",
+        "turnId"
+      ],
+      "properties": {
+        "fromModel": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/definitions/ModelRerouteReason"
+        },
+        "threadId": {
+          "type": "string"
+        },
+        "toModel": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      }
+    },
     "NetworkAccess": {
       "description": "Represents whether outbound network access is available to the agent.",
       "type": "string",
       "enum": [
         "restricted",
         "enabled"
+      ]
+    },
+    "NetworkApprovalContext": {
+      "type": "object",
+      "required": [
+        "host",
+        "protocol"
+      ],
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "protocol": {
+          "$ref": "#/definitions/NetworkApprovalProtocol"
+        }
+      }
+    },
+    "NetworkApprovalProtocol": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https",
+        "socks5_tcp",
+        "socks5_udp"
       ]
     },
     "ParsedCommand": {
@@ -4872,6 +5378,14 @@
       "type": "string",
       "enum": [
         "inProgress",
+        "completed",
+        "failed",
+        "declined"
+      ]
+    },
+    "PatchApplyStatus2": {
+      "type": "string",
+      "enum": [
         "completed",
         "failed",
         "declined"
@@ -6551,7 +7065,8 @@
           "type": "string",
           "enum": [
             "review",
-            "compact"
+            "compact",
+            "memory_consolidation"
           ]
         },
         {
@@ -6779,6 +7294,17 @@
           "description": "Unix timestamp (in seconds) when the thread was last updated.",
           "type": "integer",
           "format": "int64"
+        }
+      }
+    },
+    "ThreadArchivedNotification": {
+      "type": "object",
+      "required": [
+        "threadId"
+      ],
+      "properties": {
+        "threadId": {
+          "type": "string"
         }
       }
     },
@@ -7322,6 +7848,17 @@
           "$ref": "#/definitions/ThreadTokenUsage"
         },
         "turnId": {
+          "type": "string"
+        }
+      }
+    },
+    "ThreadUnarchivedNotification": {
+      "type": "object",
+      "required": [
+        "threadId"
+      ],
+      "properties": {
+        "threadId": {
           "type": "string"
         }
       }

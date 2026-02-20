@@ -38,11 +38,14 @@
         "null"
       ]
     },
-    "modelProvider": {
+    "dynamicTools": {
       "type": [
-        "string",
+        "array",
         "null"
-      ]
+      ],
+      "items": {
+        "$ref": "#/definitions/DynamicToolSpec"
+      }
     },
     "ephemeral": {
       "type": [
@@ -50,15 +53,34 @@
         "null"
       ]
     },
-    "sandbox": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/SandboxMode"
-        },
-        {
-          "type": "null"
-        }
+    "experimentalRawEvents": {
+      "description": "If true, opt into emitting raw Responses API items on the event stream. This is for internal use only (e.g. Codex Cloud).",
+      "default": false,
+      "type": "boolean"
+    },
+    "mockExperimentalField": {
+      "description": "Test-only experimental field used to validate experimental gating and schema filtering behavior in a stable way.",
+      "type": [
+        "string",
+        "null"
       ]
+    },
+    "model": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "modelProvider": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "persistExtendedHistory": {
+      "description": "If true, persist additional rollout EventMsg variants required to reconstruct a richer thread history on resume/fork/read.",
+      "default": false,
+      "type": "boolean"
     },
     "personality": {
       "anyOf": [
@@ -70,10 +92,14 @@
         }
       ]
     },
-    "model": {
-      "type": [
-        "string",
-        "null"
+    "sandbox": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SandboxMode"
+        },
+        {
+          "type": "null"
+        }
       ]
     }
   },

@@ -42,8 +42,15 @@
         "null"
       ]
     },
-    "threadId": {
-      "type": "string"
+    "history": {
+      "description": "[UNSTABLE] FOR CODEX CLOUD - DO NOT USE. If specified, the thread will be resumed with the provided history instead of loaded from disk.",
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "$ref": "#/definitions/ResponseItem"
+      }
     },
     "model": {
       "description": "Configuration overrides for the resumed thread, if any.",
@@ -58,15 +65,17 @@
         "null"
       ]
     },
-    "sandbox": {
-      "anyOf": [
-        {
-          "$ref": "#/definitions/SandboxMode"
-        },
-        {
-          "type": "null"
-        }
+    "path": {
+      "description": "[UNSTABLE] Specify the rollout path to resume from. If specified, the thread_id param will be ignored.",
+      "type": [
+        "string",
+        "null"
       ]
+    },
+    "persistExtendedHistory": {
+      "description": "If true, persist additional rollout EventMsg variants required to reconstruct a richer thread history on subsequent resume/fork/read.",
+      "default": false,
+      "type": "boolean"
     },
     "personality": {
       "anyOf": [
@@ -77,6 +86,19 @@
           "type": "null"
         }
       ]
+    },
+    "sandbox": {
+      "anyOf": [
+        {
+          "$ref": "#/definitions/SandboxMode"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "threadId": {
+      "type": "string"
     }
   },
   "definitions": {

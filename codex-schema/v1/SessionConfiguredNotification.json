@@ -153,7 +153,7 @@
           ]
         },
         {
-          "description": "*All* commands are auto‑approved, but they are expected to run inside a sandbox where network access is disabled and writes are confined to a specific set of paths. If the command fails, it will be escalated to the user to approve execution without a sandbox.",
+          "description": "DEPRECATED: *All* commands are auto‑approved, but they are expected to run inside a sandbox where network access is disabled and writes are confined to a specific set of paths. If the command fails, it will be escalated to the user to approve execution without a sandbox. Prefer `OnRequest` for interactive runs or `Never` for non-interactive runs.",
           "type": "string",
           "enum": [
             "on-failure"
@@ -521,6 +521,35 @@
             }
           },
           "title": "WarningEventMsg"
+        },
+        {
+          "description": "Model routing changed from the requested model to a different model.",
+          "type": "object",
+          "required": [
+            "from_model",
+            "reason",
+            "to_model",
+            "type"
+          ],
+          "properties": {
+            "from_model": {
+              "type": "string"
+            },
+            "reason": {
+              "$ref": "#/definitions/ModelRerouteReason"
+            },
+            "to_model": {
+              "type": "string"
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "model_reroute"
+              ],
+              "title": "ModelRerouteEventMsgType"
+            }
+          },
+          "title": "ModelRerouteEventMsg"
         },
         {
           "description": "Conversation history was compacted (either automatically or manually).",
@@ -1340,6 +1369,7 @@
             "exit_code",
             "formatted_output",
             "parsed_cmd",
+            "status",
             "stderr",
             "stdout",
             "turn_id",
@@ -1412,6 +1442,14 @@
                 }
               ]
             },
+            "status": {
+              "description": "Completion status for this command execution.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/ExecCommandStatus"
+                }
+              ]
+            },
             "stderr": {
               "description": "Captured stderr",
               "type": "string"
@@ -1471,8 +1509,15 @@
             "type"
           ],
           "properties": {
+            "approval_id": {
+              "description": "Identifier for this specific approval callback.\n\nWhen absent, the approval is for the command item itself (`call_id`). This is present for subcommand approvals (via execve intercept).",
+              "type": [
+                "string",
+                "null"
+              ]
+            },
             "call_id": {
-              "description": "Identifier for the associated exec call, if available.",
+              "description": "Identifier for the associated command execution item.",
               "type": "string"
             },
             "command": {
@@ -1485,6 +1530,17 @@
             "cwd": {
               "description": "The command's working directory.",
               "type": "string"
+            },
+            "network_approval_context": {
+              "description": "Optional network context for a blocked request that can be approved.",
+              "anyOf": [
+                {
+                  "$ref": "#/definitions/NetworkApprovalContext"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             },
             "parsed_cmd": {
               "type": "array",
@@ -1844,6 +1900,7 @@
           "type": "object",
           "required": [
             "call_id",
+            "status",
             "stderr",
             "stdout",
             "success",
@@ -1861,6 +1918,14 @@
               "additionalProperties": {
                 "$ref": "#/definitions/FileChange"
               }
+            },
+            "status": {
+              "description": "Completion status for this patch application.",
+              "allOf": [
+                {
+                  "$ref": "#/definitions/PatchApplyStatus"
+                }
+              ]
             },
             "stderr": {
               "description": "Captured stderr (parser errors, IO failures, etc.).",
@@ -2922,6 +2987,14 @@
         "unified_exec_interaction"
       ]
     },
+    "ExecCommandStatus": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "failed",
+        "declined"
+      ]
+    },
     "ExecOutputStream": {
       "type": "string",
       "enum": [
@@ -3330,12 +3403,42 @@
         "default"
       ]
     },
+    "ModelRerouteReason": {
+      "type": "string",
+      "enum": [
+        "high_risk_cyber_activity"
+      ]
+    },
     "NetworkAccess": {
       "description": "Represents whether outbound network access is available to the agent.",
       "type": "string",
       "enum": [
         "restricted",
         "enabled"
+      ]
+    },
+    "NetworkApprovalContext": {
+      "type": "object",
+      "required": [
+        "host",
+        "protocol"
+      ],
+      "properties": {
+        "host": {
+          "type": "string"
+        },
+        "protocol": {
+          "$ref": "#/definitions/NetworkApprovalProtocol"
+        }
+      }
+    },
+    "NetworkApprovalProtocol": {
+      "type": "string",
+      "enum": [
+        "http",
+        "https",
+        "socks5_tcp",
+        "socks5_udp"
       ]
     },
     "ParsedCommand": {
@@ -3447,6 +3550,14 @@
           },
           "title": "UnknownParsedCommand"
         }
+      ]
+    },
+    "PatchApplyStatus": {
+      "type": "string",
+      "enum": [
+        "completed",
+        "failed",
+        "declined"
       ]
     },
     "PlanItemArg": {

@@ -21,7 +21,6 @@ codex app-server generate-json-schema --experimental --out codex-schema
 
 ## Current snapshot
 
-- Generated with: `codex-cli 0.101.0`
-- Generated at: 2026-02-15
+- Generated with: `codex-cli 0.104.0`
+- Generated at: 2026-02-21
 - Command: `codex app-server generate-json-schema --experimental --out codex-schema`
-

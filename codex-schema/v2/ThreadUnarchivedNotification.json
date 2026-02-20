@@ -1,12 +1,12 @@
 {
   "$schema": "http://json-schema.org/draft-07/schema#",
-  "title": "SkillsRemoteWriteParams",
+  "title": "ThreadUnarchivedNotification",
   "type": "object",
   "required": [
-    "hazelnutId"
+    "threadId"
   ],
   "properties": {
-    "hazelnutId": {
+    "threadId": {
       "type": "string"
     }
   }

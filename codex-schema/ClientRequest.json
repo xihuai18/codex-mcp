@@ -210,6 +210,30 @@
         "method": {
           "type": "string",
           "enum": [
+            "thread/backgroundTerminals/clean"
+          ],
+          "title": "Thread/backgroundTerminals/cleanRequestMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/ThreadBackgroundTerminalsCleanParams"
+        }
+      },
+      "title": "Thread/backgroundTerminals/cleanRequest"
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
             "thread/rollback"
           ],
           "title": "Thread/rollbackRequestMethod"
@@ -330,15 +354,15 @@
         "method": {
           "type": "string",
           "enum": [
-            "skills/remote/read"
+            "skills/remote/list"
           ],
-          "title": "Skills/remote/readRequestMethod"
+          "title": "Skills/remote/listRequestMethod"
         },
         "params": {
           "$ref": "#/definitions/SkillsRemoteReadParams"
         }
       },
-      "title": "Skills/remote/readRequest"
+      "title": "Skills/remote/listRequest"
     },
     {
       "type": "object",
@@ -354,15 +378,15 @@
         "method": {
           "type": "string",
           "enum": [
-            "skills/remote/write"
+            "skills/remote/export"
           ],
-          "title": "Skills/remote/writeRequestMethod"
+          "title": "Skills/remote/exportRequestMethod"
         },
         "params": {
           "$ref": "#/definitions/SkillsRemoteWriteParams"
         }
       },
-      "title": "Skills/remote/writeRequest"
+      "title": "Skills/remote/exportRequest"
     },
     {
       "type": "object",
@@ -555,6 +579,56 @@
         }
       },
       "title": "ExperimentalFeature/listRequest"
+    },
+    {
+      "description": "Lists collaboration mode presets.",
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "collaborationMode/list"
+          ],
+          "title": "CollaborationMode/listRequestMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/CollaborationModeListParams"
+        }
+      },
+      "title": "CollaborationMode/listRequest"
+    },
+    {
+      "description": "Test-only method used to validate experimental gating.",
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "mock/experimentalMethod"
+          ],
+          "title": "Mock/experimentalMethodRequestMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/MockExperimentalMethodParams"
+        }
+      },
+      "title": "Mock/experimentalMethodRequest"
     },
     {
       "type": "object",
@@ -1418,6 +1492,78 @@
       "title": "FuzzyFileSearchRequest"
     },
     {
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "fuzzyFileSearch/sessionStart"
+          ],
+          "title": "FuzzyFileSearch/sessionStartRequestMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/FuzzyFileSearchSessionStartParams"
+        }
+      },
+      "title": "FuzzyFileSearch/sessionStartRequest"
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "fuzzyFileSearch/sessionUpdate"
+          ],
+          "title": "FuzzyFileSearch/sessionUpdateRequestMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/FuzzyFileSearchSessionUpdateParams"
+        }
+      },
+      "title": "FuzzyFileSearch/sessionUpdateRequest"
+    },
+    {
+      "type": "object",
+      "required": [
+        "id",
+        "method",
+        "params"
+      ],
+      "properties": {
+        "id": {
+          "$ref": "#/definitions/RequestId"
+        },
+        "method": {
+          "type": "string",
+          "enum": [
+            "fuzzyFileSearch/sessionStop"
+          ],
+          "title": "FuzzyFileSearch/sessionStopRequestMethod"
+        },
+        "params": {
+          "$ref": "#/definitions/FuzzyFileSearchSessionStopParams"
+        }
+      },
+      "title": "FuzzyFileSearch/sessionStopRequest"
+    },
+    {
       "description": "Execute a command (argv vector) under the server's sandbox.",
       "type": "object",
       "required": [
@@ -1531,7 +1677,7 @@
           ]
         },
         {
-          "description": "*All* commands are auto‑approved, but they are expected to run inside a sandbox where network access is disabled and writes are confined to a specific set of paths. If the command fails, it will be escalated to the user to approve execution without a sandbox.",
+          "description": "DEPRECATED: *All* commands are auto‑approved, but they are expected to run inside a sandbox where network access is disabled and writes are confined to a specific set of paths. If the command fails, it will be escalated to the user to approve execution without a sandbox. Prefer `OnRequest` for interactive runs or `Never` for non-interactive runs.",
           "type": "string",
           "enum": [
             "on-failure"
@@ -1631,106 +1777,9 @@
         }
       }
     },
-    "WebSearchAction": {
-      "oneOf": [
-        {
-          "type": "object",
-          "required": [
-            "type"
-          ],
-          "properties": {
-            "queries": {
-              "type": [
-                "array",
-                "null"
-              ],
-              "items": {
-                "type": "string"
-              }
-            },
-            "query": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "search"
-              ],
-              "title": "SearchWebSearchActionType"
-            }
-          },
-          "title": "SearchWebSearchAction"
-        },
-        {
-          "type": "object",
-          "required": [
-            "type"
-          ],
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": [
-                "open_page"
-              ],
-              "title": "OpenPageWebSearchActionType"
-            },
-            "url": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          "title": "OpenPageWebSearchAction"
-        },
-        {
-          "type": "object",
-          "required": [
-            "type"
-          ],
-          "properties": {
-            "pattern": {
-              "type": [
-                "string",
-                "null"
-              ]
-            },
-            "type": {
-              "type": "string",
-              "enum": [
-                "find_in_page"
-              ],
-              "title": "FindInPageWebSearchActionType"
-            },
-            "url": {
-              "type": [
-                "string",
-                "null"
-              ]
-            }
-          },
-          "title": "FindInPageWebSearchAction"
-        },
-        {
-          "type": "object",
-          "required": [
-            "type"
-          ],
-          "properties": {
-            "type": {
-              "type": "string",
-              "enum": [
-                "other"
-              ],
-              "title": "OtherWebSearchActionType"
-            }
-          },
-          "title": "OtherWebSearchAction"
-        }
-      ]
+    "CollaborationModeListParams": {
+      "description": "EXPERIMENTAL - list collaboration mode presets.",
+      "type": "object"
     },
     "CommandExecParams": {
       "type": "object",
@@ -2157,6 +2206,50 @@
         }
       }
     },
+    "FuzzyFileSearchSessionStartParams": {
+      "type": "object",
+      "required": [
+        "roots",
+        "sessionId"
+      ],
+      "properties": {
+        "roots": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      }
+    },
+    "FuzzyFileSearchSessionStopParams": {
+      "type": "object",
+      "required": [
+        "sessionId"
+      ],
+      "properties": {
+        "sessionId": {
+          "type": "string"
+        }
+      }
+    },
+    "FuzzyFileSearchSessionUpdateParams": {
+      "type": "object",
+      "required": [
+        "query",
+        "sessionId"
+      ],
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "sessionId": {
+          "type": "string"
+        }
+      }
+    },
     "GetAccountParams": {
       "type": "object",
       "properties": {
@@ -2254,6 +2347,15 @@
           "type": "string"
         }
       }
+    },
+    "HazelnutScope": {
+      "type": "string",
+      "enum": [
+        "example",
+        "workspace-shared",
+        "all-shared",
+        "personal"
+      ]
     },
     "InitializeCapabilities": {
       "description": "Client-declared capabilities negotiated during initialize.",
@@ -2655,22 +2757,11 @@
         }
       ]
     },
-    "V1TextElement": {
+    "MockExperimentalMethodParams": {
       "type": "object",
-      "required": [
-        "byteRange"
-      ],
       "properties": {
-        "byteRange": {
-          "description": "Byte range in the parent `text` buffer that this element occupies.",
-          "allOf": [
-            {
-              "$ref": "#/definitions/V1ByteRange"
-            }
-          ]
-        },
-        "placeholder": {
-          "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+        "value": {
+          "description": "Test-only payload field.",
           "type": [
             "string",
             "null"
@@ -2693,6 +2784,13 @@
           "description": "Opaque pagination cursor returned by a previous call.",
           "type": [
             "string",
+            "null"
+          ]
+        },
+        "includeHidden": {
+          "description": "When true, include models that are hidden from the default picker list.",
+          "type": [
+            "boolean",
             "null"
           ]
         },
@@ -2808,6 +2906,15 @@
         "none",
         "friendly",
         "pragmatic"
+      ]
+    },
+    "ProductSurface": {
+      "type": "string",
+      "enum": [
+        "chatgpt",
+        "codex",
+        "api",
+        "atlas"
       ]
     },
     "ReadOnlyAccess": {
@@ -3981,20 +4088,38 @@
       }
     },
     "SkillsRemoteReadParams": {
-      "type": "object"
+      "type": "object",
+      "properties": {
+        "enabled": {
+          "default": false,
+          "type": "boolean"
+        },
+        "hazelnutScope": {
+          "default": "example",
+          "allOf": [
+            {
+              "$ref": "#/definitions/HazelnutScope"
+            }
+          ]
+        },
+        "productSurface": {
+          "default": "codex",
+          "allOf": [
+            {
+              "$ref": "#/definitions/ProductSurface"
+            }
+          ]
+        }
+      }
     },
     "SkillsRemoteWriteParams": {
       "type": "object",
       "required": [
-        "hazelnutId",
-        "isPreload"
+        "hazelnutId"
       ],
       "properties": {
         "hazelnutId": {
           "type": "string"
-        },
-        "isPreload": {
-          "type": "boolean"
         }
       }
     },
@@ -4032,24 +4157,14 @@
         }
       }
     },
-    "V1ByteRange": {
+    "ThreadBackgroundTerminalsCleanParams": {
       "type": "object",
       "required": [
-        "end",
-        "start"
+        "threadId"
       ],
       "properties": {
-        "end": {
-          "description": "End byte offset (exclusive) within the UTF-8 text buffer.",
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
-        },
-        "start": {
-          "description": "Start byte offset (inclusive) within the UTF-8 text buffer.",
-          "type": "integer",
-          "format": "uint",
-          "minimum": 0.0
+        "threadId": {
+          "type": "string"
         }
       }
     },
@@ -4119,8 +4234,17 @@
             "null"
           ]
         },
-        "threadId": {
-          "type": "string"
+        "path": {
+          "description": "[UNSTABLE] Specify the rollout path to fork from. If specified, the thread_id param will be ignored.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "persistExtendedHistory": {
+          "description": "If true, persist additional rollout EventMsg variants required to reconstruct a richer thread history on subsequent resume/fork/read.",
+          "default": false,
+          "type": "boolean"
         },
         "sandbox": {
           "anyOf": [
@@ -4131,6 +4255,9 @@
               "type": "null"
             }
           ]
+        },
+        "threadId": {
+          "type": "string"
         }
       }
     },
@@ -4149,6 +4276,13 @@
         },
         "cursor": {
           "description": "Opaque pagination cursor returned by a previous call.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "cwd": {
+          "description": "Optional cwd filter; when set, only threads whose session cwd exactly matches this path are returned.",
           "type": [
             "string",
             "null"
@@ -4275,8 +4409,15 @@
             "null"
           ]
         },
-        "threadId": {
-          "type": "string"
+        "history": {
+          "description": "[UNSTABLE] FOR CODEX CLOUD - DO NOT USE. If specified, the thread will be resumed with the provided history instead of loaded from disk.",
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "$ref": "#/definitions/ResponseItem"
+          }
         },
         "model": {
           "description": "Configuration overrides for the resumed thread, if any.",
@@ -4291,15 +4432,17 @@
             "null"
           ]
         },
-        "sandbox": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxMode"
-            },
-            {
-              "type": "null"
-            }
+        "path": {
+          "description": "[UNSTABLE] Specify the rollout path to resume from. If specified, the thread_id param will be ignored.",
+          "type": [
+            "string",
+            "null"
           ]
+        },
+        "persistExtendedHistory": {
+          "description": "If true, persist additional rollout EventMsg variants required to reconstruct a richer thread history on subsequent resume/fork/read.",
+          "default": false,
+          "type": "boolean"
         },
         "personality": {
           "anyOf": [
@@ -4310,6 +4453,19 @@
               "type": "null"
             }
           ]
+        },
+        "sandbox": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "threadId": {
+          "type": "string"
         }
       }
     },
@@ -4406,11 +4562,14 @@
             "null"
           ]
         },
-        "modelProvider": {
+        "dynamicTools": {
           "type": [
-            "string",
+            "array",
             "null"
-          ]
+          ],
+          "items": {
+            "$ref": "#/definitions/DynamicToolSpec"
+          }
         },
         "ephemeral": {
           "type": [
@@ -4418,15 +4577,34 @@
             "null"
           ]
         },
-        "sandbox": {
-          "anyOf": [
-            {
-              "$ref": "#/definitions/SandboxMode"
-            },
-            {
-              "type": "null"
-            }
+        "experimentalRawEvents": {
+          "description": "If true, opt into emitting raw Responses API items on the event stream. This is for internal use only (e.g. Codex Cloud).",
+          "default": false,
+          "type": "boolean"
+        },
+        "mockExperimentalField": {
+          "description": "Test-only experimental field used to validate experimental gating and schema filtering behavior in a stable way.",
+          "type": [
+            "string",
+            "null"
           ]
+        },
+        "model": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "modelProvider": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "persistExtendedHistory": {
+          "description": "If true, persist additional rollout EventMsg variants required to reconstruct a richer thread history on resume/fork/read.",
+          "default": false,
+          "type": "boolean"
         },
         "personality": {
           "anyOf": [
@@ -4438,10 +4616,14 @@
             }
           ]
         },
-        "model": {
-          "type": [
-            "string",
-            "null"
+        "sandbox": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/SandboxMode"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }
@@ -4490,8 +4672,16 @@
             }
           ]
         },
-        "threadId": {
-          "type": "string"
+        "collaborationMode": {
+          "description": "EXPERIMENTAL - Set a pre-set collaboration mode. Takes precedence over model, reasoning_effort, and developer instructions if set.\n\nFor `collaboration_mode.settings.developer_instructions`, `null` means \"use the built-in instructions for the selected mode\".",
+          "anyOf": [
+            {
+              "$ref": "#/definitions/CollaborationMode"
+            },
+            {
+              "type": "null"
+            }
+          ]
         },
         "cwd": {
           "description": "Override the working directory for this turn and subsequent turns.",
@@ -4559,6 +4749,9 @@
               "type": "null"
             }
           ]
+        },
+        "threadId": {
+          "type": "string"
         }
       }
     },
@@ -4702,6 +4895,151 @@
             }
           },
           "title": "MentionUserInput"
+        }
+      ]
+    },
+    "V1ByteRange": {
+      "type": "object",
+      "required": [
+        "end",
+        "start"
+      ],
+      "properties": {
+        "end": {
+          "description": "End byte offset (exclusive) within the UTF-8 text buffer.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        },
+        "start": {
+          "description": "Start byte offset (inclusive) within the UTF-8 text buffer.",
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0.0
+        }
+      }
+    },
+    "V1TextElement": {
+      "type": "object",
+      "required": [
+        "byteRange"
+      ],
+      "properties": {
+        "byteRange": {
+          "description": "Byte range in the parent `text` buffer that this element occupies.",
+          "allOf": [
+            {
+              "$ref": "#/definitions/V1ByteRange"
+            }
+          ]
+        },
+        "placeholder": {
+          "description": "Optional human-readable placeholder for the element, displayed in the UI.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      }
+    },
+    "WebSearchAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "queries": {
+              "type": [
+                "array",
+                "null"
+              ],
+              "items": {
+                "type": "string"
+              }
+            },
+            "query": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "search"
+              ],
+              "title": "SearchWebSearchActionType"
+            }
+          },
+          "title": "SearchWebSearchAction"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "open_page"
+              ],
+              "title": "OpenPageWebSearchActionType"
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "title": "OpenPageWebSearchAction"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "pattern": {
+              "type": [
+                "string",
+                "null"
+              ]
+            },
+            "type": {
+              "type": "string",
+              "enum": [
+                "find_in_page"
+              ],
+              "title": "FindInPageWebSearchActionType"
+            },
+            "url": {
+              "type": [
+                "string",
+                "null"
+              ]
+            }
+          },
+          "title": "FindInPageWebSearchAction"
+        },
+        {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": [
+                "other"
+              ],
+              "title": "OtherWebSearchActionType"
+            }
+          },
+          "title": "OtherWebSearchAction"
         }
       ]
     }
