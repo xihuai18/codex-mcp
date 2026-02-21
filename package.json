@@ -1,6 +1,6 @@
 {
   "name": "@leo000001/codex-mcp",
-  "version": "2.0.1",
+  "version": "2.0.2",
   "description": "MCP server that wraps OpenAI Codex app-server — start coding agents, poll their progress, and manage permissions from any MCP client",
   "type": "module",
   "main": "dist/index.js",
