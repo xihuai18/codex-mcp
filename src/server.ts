@@ -95,6 +95,163 @@ export function createServer(serverCwd: string): McpServer {
     ...errorOutputShape,
   };
 
+  const codexCheckPollOptionsSchema = z
+    .object({
+      includeEvents: z
+        .boolean()
+        .optional()
+        .describe("Default: true. Include events[] in response."),
+      includeActions: z
+        .boolean()
+        .optional()
+        .describe("Default: true. Include actions[] in response."),
+      includeResult: z.boolean().optional().describe("Default: true. Include result in response."),
+      maxBytes: z
+        .number()
+        .int()
+        .positive()
+        .optional()
+        .describe("Default: unlimited. Best-effort response payload cap in bytes."),
+    })
+    .optional()
+    .describe("Optional poll shaping controls.");
+
+  const codexCheckInputSchema = z
+    .object({
+      action: z.enum(CHECK_ACTIONS),
+      sessionId: z.string().describe("Target session ID"),
+      cursor: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe("Event cursor (default: session last consumed cursor)."),
+      maxEvents: z
+        .number()
+        .int()
+        .nonnegative()
+        .optional()
+        .describe(
+          `Max events. Default: poll=${POLL_DEFAULT_MAX_EVENTS} (min ${POLL_MIN_MAX_EVENTS}), respond_*=${RESPOND_DEFAULT_MAX_EVENTS}.`
+        ),
+      responseMode: z
+        .enum(RESPONSE_MODES)
+        .optional()
+        .describe("Response mode. Default: minimal. Options: minimal/delta_compact/full."),
+      pollOptions: codexCheckPollOptionsSchema,
+      // respond_permission
+      requestId: z.string().optional().describe("Request ID from actions[]"),
+      decision: z
+        .enum(ALL_DECISIONS)
+        .optional()
+        .describe(
+          "Approval decision for respond_permission. acceptWithExecpolicyAmendment requires execpolicy_amendment."
+        ),
+      execpolicy_amendment: z
+        .array(z.string())
+        .optional()
+        .describe("For acceptWithExecpolicyAmendment only"),
+      denyMessage: z.string().optional().describe("Deny reason (not sent to agent)"),
+      // respond_user_input
+      answers: z
+        .record(
+          z.string(),
+          z.object({
+            answers: z.array(z.string()),
+          })
+        )
+        .optional()
+        .describe("question-id -> answers map (id from actions[] user_input request)."),
+    })
+    .superRefine((value, ctx) => {
+      const addIssue = (path: string, message: string) => {
+        ctx.addIssue({
+          code: z.ZodIssueCode.custom,
+          path: [path],
+          message,
+        });
+      };
+
+      switch (value.action) {
+        case "poll": {
+          if (value.maxEvents !== undefined && value.maxEvents < POLL_MIN_MAX_EVENTS) {
+            addIssue(
+              "maxEvents",
+              `poll requires maxEvents >= ${POLL_MIN_MAX_EVENTS} to avoid no-op loops.`
+            );
+          }
+          if (value.requestId !== undefined) {
+            addIssue("requestId", "requestId is only allowed for respond_* actions.");
+          }
+          if (value.decision !== undefined) {
+            addIssue("decision", "decision is only allowed for action='respond_permission'.");
+          }
+          if (value.execpolicy_amendment !== undefined) {
+            addIssue(
+              "execpolicy_amendment",
+              "execpolicy_amendment is only allowed for action='respond_permission'."
+            );
+          }
+          if (value.denyMessage !== undefined) {
+            addIssue("denyMessage", "denyMessage is only allowed for action='respond_permission'.");
+          }
+          if (value.answers !== undefined) {
+            addIssue("answers", "answers is only allowed for action='respond_user_input'.");
+          }
+          break;
+        }
+        case "respond_permission": {
+          if (!value.requestId) {
+            addIssue("requestId", "requestId is required for action='respond_permission'.");
+          }
+          if (!value.decision) {
+            addIssue("decision", "decision is required for action='respond_permission'.");
+          }
+          if (value.answers !== undefined) {
+            addIssue("answers", "answers is only allowed for action='respond_user_input'.");
+          }
+          const needsExecpolicy = value.decision === "acceptWithExecpolicyAmendment";
+          if (
+            needsExecpolicy &&
+            (!value.execpolicy_amendment || value.execpolicy_amendment.length === 0)
+          ) {
+            addIssue(
+              "execpolicy_amendment",
+              "execpolicy_amendment is required and must be non-empty when decision='acceptWithExecpolicyAmendment'."
+            );
+          }
+          if (!needsExecpolicy && value.execpolicy_amendment !== undefined) {
+            addIssue(
+              "execpolicy_amendment",
+              "execpolicy_amendment is only allowed when decision='acceptWithExecpolicyAmendment'."
+            );
+          }
+          break;
+        }
+        case "respond_user_input": {
+          if (!value.requestId) {
+            addIssue("requestId", "requestId is required for action='respond_user_input'.");
+          }
+          if (!value.answers) {
+            addIssue("answers", "answers is required for action='respond_user_input'.");
+          }
+          if (value.decision !== undefined) {
+            addIssue("decision", "decision is only allowed for action='respond_permission'.");
+          }
+          if (value.execpolicy_amendment !== undefined) {
+            addIssue(
+              "execpolicy_amendment",
+              "execpolicy_amendment is only allowed for action='respond_permission'."
+            );
+          }
+          if (value.denyMessage !== undefined) {
+            addIssue("denyMessage", "denyMessage is only allowed for action='respond_permission'.");
+          }
+          break;
+        }
+      }
+    });
+
   // ── Tool 1: codex — Start a new Codex agent session ──────────────
 
   server.registerTool(
@@ -336,74 +493,7 @@ respond_user_input: user-input answers. Default maxEvents=${RESPOND_DEFAULT_MAX_
 
 events[].type is coarse-grained; details are in events[].data.method.
 cursor omitted => use session last cursor. cursorResetTo => reset and continue.`,
-      inputSchema: {
-        action: z.enum(CHECK_ACTIONS),
-        sessionId: z.string().describe("Target session ID"),
-        cursor: z
-          .number()
-          .int()
-          .nonnegative()
-          .optional()
-          .describe("Event cursor (default: session last consumed cursor)."),
-        maxEvents: z
-          .number()
-          .int()
-          .nonnegative()
-          .optional()
-          .describe(
-            `Max events. Default: poll=${POLL_DEFAULT_MAX_EVENTS} (min ${POLL_MIN_MAX_EVENTS}), respond_*=${RESPOND_DEFAULT_MAX_EVENTS}.`
-          ),
-        responseMode: z
-          .enum(RESPONSE_MODES)
-          .optional()
-          .describe("Response mode. Default: minimal. Options: minimal/delta_compact/full."),
-        pollOptions: z
-          .object({
-            includeEvents: z
-              .boolean()
-              .optional()
-              .describe("Default: true. Include events[] in response."),
-            includeActions: z
-              .boolean()
-              .optional()
-              .describe("Default: true. Include actions[] in response."),
-            includeResult: z
-              .boolean()
-              .optional()
-              .describe("Default: true. Include result in response."),
-            maxBytes: z
-              .number()
-              .int()
-              .positive()
-              .optional()
-              .describe("Default: unlimited. Best-effort response payload cap in bytes."),
-          })
-          .optional()
-          .describe("Optional poll shaping controls."),
-        // respond_permission
-        requestId: z.string().optional().describe("Request ID from actions[]"),
-        decision: z
-          .enum(ALL_DECISIONS)
-          .optional()
-          .describe(
-            "Approval decision for respond_permission. acceptWithExecpolicyAmendment requires execpolicy_amendment."
-          ),
-        execpolicy_amendment: z
-          .array(z.string())
-          .optional()
-          .describe("For acceptWithExecpolicyAmendment only"),
-        denyMessage: z.string().optional().describe("Deny reason (not sent to agent)"),
-        // respond_user_input
-        answers: z
-          .record(
-            z.string(),
-            z.object({
-              answers: z.array(z.string()),
-            })
-          )
-          .optional()
-          .describe("questionId -> answers map (questionId from actions[] user_input request)."),
-      },
+      inputSchema: codexCheckInputSchema,
       outputSchema: {
         sessionId: z.string().optional(),
         status: z.enum(["running", "idle", "waiting_approval", "error", "cancelled"]).optional(),
@@ -438,10 +528,13 @@ cursor omitted => use session last cursor. cursorResetTo => reset and continue.`
             z.object({
               type: z.enum(["approval", "user_input"]),
               requestId: z.string(),
-              kind: z.string(),
+              kind: z.enum(["command", "fileChange", "user_input"]),
               params: z.unknown(),
               itemId: z.string(),
               reason: z.string().optional(),
+              approvalId: z.string().optional(),
+              commandActions: z.array(z.unknown()).nullable().optional(),
+              proposedExecpolicyAmendment: z.array(z.string()).nullable().optional(),
               createdAt: z.string(),
             })
           )

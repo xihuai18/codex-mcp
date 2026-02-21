@@ -179,9 +179,10 @@ test("mean of [5,5] should be 5", () => {
 });
 EOF
 
-cd "$dst"
-npm test
+npm test --prefix "$dst"
 ```
+
+> **Note**: Avoid `cd "$dst"` in the setup script — some MCP client environments (e.g., Claude Code) reset the working directory after each shell invocation. Use `npm test --prefix "$dst"` or `(cd "$dst" && npm test)` instead.
 
 ## 4.2 PowerShell Setup (Windows native pwsh)
 
@@ -241,7 +242,7 @@ Important:
 
 1. Put an expanded absolute path in MCP JSON payloads.
 2. Do not pass shell variables like `$HOME` literally as `cwd`.
-3. On Windows (including MINGW/Git Bash clients), pass Windows-style paths in MCP payloads (for example `D:\\Lab\\...`), not `/d/Lab/...`.
+3. On Windows (including MINGW/Git Bash clients), pass Windows-style paths in MCP payloads (for example `D:\\Lab\\...`), not `/d/Lab/...`. In JSON strings, backslashes must be double-escaped: the literal path `C:\Users\me\project` becomes `"C:\\Users\\me\\project"` in JSON.
 
 ## 5. Protocol Ground Rules You Must Follow
 
@@ -297,6 +298,12 @@ Codex tasks often take 2-10+ minutes. Do not poll every turn.
 3. When `status` is `idle`, `error`, or `cancelled`: stop polling. The session is done.
 4. The tool descriptions for `codex`, `codex_reply`, and `codex_check` include this guidance so LLM callers see it directly.
 
+**CRITICAL: Approval timeout vs polling interval conflict.** The default `approvalTimeoutMs` is 60 seconds, but the recommended `running` polling interval is ≥2 minutes. If a session transitions from `running` to `waiting_approval` between polls, the approval will auto-decline before the client can respond. Mitigations:
+
+- For approval-heavy tests (TC2, TC4 with `untrusted`/`on-request`), set `advanced.approvalTimeoutMs` to at least 300000 (5 minutes) to ensure approvals survive between polling intervals.
+- Alternatively, use `approvalPolicy="never"` for tests that do not specifically test the approval flow, to avoid this timing issue entirely.
+- A future server-side improvement (e.g., push notifications for status changes) would eliminate this fundamental tension.
+
 ## 5.3 Approval Rules
 
 When `actions[]` is present:
@@ -329,6 +336,14 @@ Decision constraints:
    - `acceptForSession`
    - `decline`
    - `cancel`
+
+Parallel approval responses:
+
+When multiple `actions[]` entries are pending simultaneously, you may send `respond_permission` for each in parallel. However, be aware that:
+
+1. The second response may return stale `actions[]` data (showing already-resolved requests as still pending) due to race conditions in the response payload.
+2. If a request was already resolved by the time your response arrives, you will get `Error [REQUEST_NOT_FOUND]`. This is expected and safe to ignore.
+3. For reliability, prefer sending approval responses sequentially, or handle `REQUEST_NOT_FOUND` gracefully when sending in parallel.
 
 ## 6. Core E2E Test Matrix (Generic for Any MCP Client)
 
@@ -391,9 +406,12 @@ Tool call (`codex`) suggested payload:
   "approvalPolicy": "untrusted",
   "sandbox": "workspace-write",
   "effort": "medium",
-  "cwd": "<REPRO_CWD>"
+  "cwd": "<REPRO_CWD>",
+  "advanced": { "approvalTimeoutMs": 300000 }
 }
 ```
+
+> **Why `approvalTimeoutMs: 300000`?** With the recommended ≥2-minute polling interval, the default 60-second approval timeout will expire before the client can respond. Setting 5 minutes ensures approvals survive between polling rounds. See Section 5.2 for details.
 
 Expected behavior:
 
@@ -445,7 +463,7 @@ Validate:
 3. `action="cancel"` moves to `cancelled`.
 4. `action="interrupt"` works only while active turn is running.
 5. `action="fork"` creates a new session/thread branch.
-6. `action="clean_background_terminals"` returns success and does not crash the session.
+6. `action="clean_background_terminals"` returns success and does not crash the session. **Note:** This action requires the `experimentalApi` capability in the codex CLI backend. If your codex version does not support it, expect `Error [INTERNAL]` with a message about `experimentalApi`. This is a known limitation, not a test failure — record the error and continue.
 
 Example payload:
 
@@ -479,7 +497,7 @@ Pass criteria:
 1. State changes match action semantics.
 2. No transport crash on management operations.
 3. `interrupt` successfully stops a running turn (or is documented as missed due to timing).
-4. `clean_background_terminals` returns `{ success: true, message }`.
+4. `clean_background_terminals` returns `{ success: true, message }`, or `Error [INTERNAL]` if the codex CLI lacks `experimentalApi` capability (see note in step 6 above).
 
 ## TC6 (Optional): Structured Output
 
@@ -668,6 +686,18 @@ Fix:
 
 1. The tool descriptions for `codex`, `codex_reply`, and `codex_check` now include explicit polling frequency guidance: for `running`, wait at least 2 minutes and increase interval based on estimated task duration; only poll promptly when `status` is `waiting_approval`.
 2. If your LLM still polls too frequently, add a system prompt instruction: "When using codex_check, while status is running, wait at least 2 minutes between polls and extend further for complex tasks; only poll sooner for waiting_approval."
+
+## Symptom: Approvals auto-decline before client can respond
+
+Likely cause:
+
+1. The session transitions from `running` to `waiting_approval` between polling intervals. With the default `approvalTimeoutMs` of 60 seconds and the recommended ≥2-minute polling interval, the approval expires before the next poll.
+
+Fix:
+
+1. Set `advanced.approvalTimeoutMs` to at least 300000 (5 minutes) when using `untrusted` or `on-request` approval policies. This ensures approvals survive between polling rounds.
+2. For tests that do not specifically test the approval flow, use `approvalPolicy="never"` to avoid the issue entirely.
+3. If your MCP client supports it, consider implementing an adaptive polling strategy: poll at the recommended ≥2-minute interval while `running`, but if the previous poll returned `waiting_approval`, switch to ~1-second polling until the approval queue is cleared.
 
 ## 9. Test Report Template (Use This in Final Report)
 

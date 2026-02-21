@@ -5,15 +5,149 @@
 ## 概述
 MCP server，基于 OpenAI Codex app-server JSON-RPC 协议，通过 4 个 MCP 工具和 6 个静态只读 Resources 暴露 Codex agent 能力。
 
-## 接口对齐与升级规范（本次约定）
+## 文档分工（AGENTS vs DESIGN）
 
-- 以 `codex app-server` 协议与 `codex-schema/` 为接口真值来源；实现与文档必须对齐该来源。
-- 对依赖接口升级时，先阅读仓库内现有文档，再对照协议/类型定义逐项核对；`CHANGELOG` 只能辅助定位，不作为唯一依据。
-- MCP 对外参数名与上游字段名保持严格同名：`snake_case` 不改成 `camelCase`，`camelCase` 不改成 `snake_case`。
-- 默认不保留旧参数别名兼容层；采用“同名切换 + 文档/测试同步更新”的方式落地变更。
-- `codex-schema` 可直接更新并提交；差异应在 `git diff` 中清晰可审计，并同步校验 `codex-schema/metadata.json`。
-- 接口变更需要同步更新：工具输入 schema、handler、SessionManager、类型定义、README、AGENTS、CHANGELOG、E2E 测试计划与单元测试。
-- 建议使用多智能体并行探索，并在收尾阶段进行一次独立交叉验证，降低漏改风险。
+- `AGENTS.md`：执行规范、变更清单、实现护栏（给人类/agent 的“如何落地”视角）。
+- `docs/DESIGN.md`：架构与协议真值、升级方法论、字段级语义（“系统如何工作”视角）。
+- 同一条规则只保留一份完整定义；`AGENTS.md` 只保留摘要与入口，完整规则在本文件。
+
+## 依赖接口与 SDK 升级手册（Single Source of Truth）
+
+本章节是依赖升级与接口对齐的唯一权威流程。执行升级时，`AGENTS.md` 的升级清单应回链到这里。
+
+### 1. 权威来源优先级
+
+1. `codex app-server` 协议定义 + `codex-schema/`（含 `codex-schema/metadata.json`）
+2. 仓库实现代码（`src/server.ts`、tools、`SessionManager`、`protocol.ts`、`types.ts`）
+3. 对外文档（`README.md`、`AGENTS.md`、`CHANGELOG.md`、`docs/E2E_LOCAL_TEST_PLAN.md`）
+
+约束：
+- `CHANGELOG` 仅用于辅助定位，不可替代协议对比。
+- 发现冲突时，以上游协议与 vendored schema 为准，代码和文档必须追随。
+
+### 2. 升级触发条件
+
+以下任一发生即进入本手册流程：
+- `codex` CLI / `codex app-server` 升级（协议、事件、字段、行为变更）
+- `@modelcontextprotocol/sdk` 升级（MCP tool contract / transport 行为变更）
+- `zod` 升级（schema/类型推断行为变更）
+- 运行时约束升级（Node.js/TypeScript）且影响工具接口、类型或错误模型
+
+### 3. 依赖升级矩阵
+
+| 依赖/接口 | 真值来源 | 主要影响面 | 变更产物 |
+| --- | --- | --- | --- |
+| `codex app-server` 协议 | `codex-schema/` + `metadata.json` | JSON-RPC method、params/result、server-initiated requests、事件语义 | `src/app-server/protocol.ts`, `src/session/manager.ts`, `src/server.ts`, tests, docs |
+| `@modelcontextprotocol/sdk` | 官方 SDK 行为 + 本仓库现用 API | tool 注册、`CallToolResult` 兼容、stdio 交互 | `src/server.ts`, `src/index.ts`, tests, README/docs |
+| `zod` | Zod API / 类型推断语义 | 工具入参验证、输出 schema、错误信息 | `src/server.ts`, tests |
+| Node/TS 运行时 | `package.json` engines + tsconfig | 构建/类型系统、边界行为 | build/typecheck scripts, impl & docs if behavior changes |
+
+### 4. 标准升级流程（必须完整执行）
+
+1. **拉取真值并建立对比基线**
+   - 记录当前仓库版本与依赖版本（含 `codex-schema/metadata.json`）。
+   - 明确本次升级目标版本与变更范围。
+2. **更新 schema 基线（若涉及 app-server 协议）**
+   - 使用最新 CLI 生成并提交：  
+     `codex app-server generate-json-schema --experimental --out codex-schema`
+   - 同步确认 `codex-schema/metadata.json` 已反映新基线。
+3. **做差异分级（decision gate）**
+   - 分类为：字段新增 / 字段重命名 / 字段删除 / 语义变化 / 事件行为变化。
+   - 标记是否为 breaking change，是否影响公开 MCP 参数。
+4. **实现对齐（代码层）**
+   - 工具 schema：`src/server.ts`
+   - tool handlers：`src/tools/*`
+   - 会话状态机与审批流：`src/session/manager.ts`
+   - 协议类型：`src/app-server/protocol.ts`
+   - 常量与公共类型：`src/types.ts`
+5. **命名一致性校验**
+   - MCP 对外参数名与上游字段严格同名。
+   - `snake_case` 不改 `camelCase`；`camelCase` 不改 `snake_case`。
+6. **兼容策略裁决**
+   - 默认不保留旧别名。
+   - 若必须保留兼容层，必须在文档中写清：适用范围、移除版本、移除日期、测试覆盖。
+   - 必要兼容使用白名单机制；白名单外的兼容逻辑必须删除，不得长期保留。
+
+### 5. 兼容白名单（严格）
+
+本项目执行“仅保留必要兼容”：
+
+- 必要兼容（当前唯一白名单）：
+  - `thread/start` / `thread/fork` / `thread/resume` / `turn/start` 的 response id 兼容解析：`v1 {threadId|turnId}` 与 `v2 {thread:{id}|turn:{id}}`。
+  - 保留原因：真实运行中仍可能遇到混合形态返回；该兼容不改变 MCP 对外字段，仅用于内部稳定提取 id。
+- 非必要兼容（已移除，禁止回退）：
+  - snake_case 字段别名：`approval_id`、`network_approval_context`
+  - 用户输入问题 id 别名：`questionId`（统一使用 schema 标准字段 `id`）
+
+说明：
+- 白名单仅约束“兼容层/别名层”行为。
+- 对于 `codex-schema` 中仍存在的 deprecated method（例如 `applyPatchApproval` / `execCommandApproval`），按“协议覆盖”处理，不视为额外兼容别名。
+
+### 6. 差异分类与处理策略
+
+- **字段新增（非 breaking）**：
+  - 实现透传与类型补全；
+  - 文档补充默认行为与可选性；
+  - 新增最小回归测试。
+- **字段重命名（通常 breaking）**：
+  - 直接切换为新字段名；
+  - 默认不做双写兼容；
+  - 若不得不兼容，必须写迁移窗口与清退计划。
+- **字段删除（breaking）**：
+  - 删除实现入口与文档；
+  - 明确错误码/降级行为；
+  - 增加旧参数误用测试。
+- **语义变化（行为 breaking）**：
+  - 同步更新状态机、错误模型、轮询语义；
+  - 在 README + DESIGN 明确新语义。
+
+### 7. 变更闭环清单（PR 必查）
+
+接口字段调整时，以下必须逐项确认：
+
+- `src/server.ts`（tool schema 与 output schema）
+- `src/tools/codex.ts`
+- `src/tools/codex-reply.ts`
+- `src/tools/codex-session.ts`
+- `src/tools/codex-check.ts`
+- `src/session/manager.ts`
+- `src/app-server/protocol.ts`
+- `src/types.ts`
+- `README.md`
+- `docs/DESIGN.md`
+- `AGENTS.md`
+- `CHANGELOG.md`
+- `docs/E2E_LOCAL_TEST_PLAN.md`
+- 对应 `tests/*.test.ts`
+
+### 8. 推荐审查方式
+
+- 先并行探索关键路径（schema、handler、manager、docs）。
+- 合并前做一次独立交叉验证（可借助 `claude-code-mcp`）。
+- 评审重点优先顺序：行为回归 > 字段一致性 > 文档同步性。
+
+### 9. 单次更新执行模板（可直接复制）
+
+```bash
+codex --version
+codex app-server generate-json-schema --experimental --out codex-schema
+git diff --name-only -- codex-schema
+git diff -- codex-schema/metadata.json
+```
+
+判定规则：
+- `git diff --name-only -- codex-schema` 为空：schema 基线未变化，记录“已执行更新，结果无差异”即可。
+- 若有差异：进入本手册第 4 节完整流程，完成代码/测试/文档闭环后再合并。
+
+### 10. 最近一次执行记录
+
+- 执行日期：`2026-02-21`（本地环境）
+- `codex` 版本：`codex-cli 0.104.0`
+- 执行命令：`codex app-server generate-json-schema --experimental --out codex-schema`
+- 结果：`codex-schema` 无文件差异，`codex-schema/metadata.json` 无变更
+- 结论：当前 vendored schema 基线与本地 CLI 生成结果一致
+
+> 后续每次执行“单次更新”时，应覆盖本节记录，保持最新一次运行状态可追溯。
 
 ## 系统架构
 
@@ -85,6 +219,9 @@ advanced 参数（低频）：
   "pollInterval": 120000
 }
 ```
+
+说明：
+- 对于 `kind="command"` 的审批项，`actions[]` 与对应 `approval_request` 事件会透出 `commandActions` 与 `proposedExecpolicyAmendment`，便于客户端直接渲染审批上下文。
 
 **工作流**：
 1. 构建 codex app-server 启动参数（-c/-p 等）
@@ -165,7 +302,7 @@ advanced 参数（低频）：
 │
 │ # respond_user_input 参数
 ├── requestId?: string       # 用户输入请求 ID
-└── answers?: Record<string, { answers: string[] }>  # questionId → answers 映射
+└── answers?: Record<string, { answers: string[] }>  # question-id → answers 映射
 ```
 
 **poll 返回值**：
@@ -186,6 +323,8 @@ advanced 参数（低频）：
       "params": { "command": "npm install", "cwd": "/project", "reason": "Install dependencies" },
       "itemId": "item_xxx",
       "reason": "Install dependencies",
+      "commandActions": [],
+      "proposedExecpolicyAmendment": [],
       "createdAt": "2026-02-15T..."
     }
   ],
@@ -263,6 +402,7 @@ interface SessionEvent {
 ### 事件类型映射
 
 > 左列为 app-server JSON-RPC 通知/请求的真实 `method` 名（来自 `codex app-server generate-json-schema`）。
+> “通知方法”就是 JSON-RPC notification 的 `method` 字段（例如 `turn/started`、`item/agentMessage/delta`），在 `codex_check` 返回中位于 `events[].data.method`。
 
 | app-server method | codex-mcp 事件类型 | Pinned | 说明 |
 |---|---|---|---|
@@ -487,7 +627,7 @@ codex app-server 内部：
 
 1. `item/tool/requestUserInput` — 工具请求用户输入
    - params: `{ itemId, threadId, turnId, questions: [{ id, header, question, options? }] }`
-   - response: `{ answers: Record<questionId, { answers: string[] }> }`
+   - response: `{ answers: Record<question-id, { answers: string[] }> }`
    - 处理策略：缓冲为 `approval_request` 事件（subtype: "user_input"），由 MCP 客户端通过 `codex_check(action="respond_user_input")` 响应
 
 2. `item/tool/call` — 动态工具调用
@@ -498,7 +638,10 @@ codex app-server 内部：
 3. `account/chatgptAuthTokens/refresh` — 认证令牌刷新
    - params: `{ reason: "unauthorized", previousAccountId? }`
    - response: `{ accessToken, chatgptAccountId, chatgptPlanType? }`
-   - 处理策略：返回 JSON-RPC error（codex-mcp 不管理认证）
+   - 处理策略：返回 JSON-RPC error（codex-mcp 不管理认证），固定错误码 `-32000`
+   - 错误语义：
+     - running/waiting: `"account/chatgptAuthTokens/refresh unsupported: codex-mcp does not manage external ChatGPT auth tokens"`
+     - terminal: `"account/chatgptAuthTokens/refresh unsupported: session is terminal"`
 
 4. `applyPatchApproval` / `execCommandApproval` — legacy 审批（已废弃）
    - 处理策略：返回 `{ decision: "denied" }` 并记录警告日志
@@ -516,8 +659,8 @@ input: [..., { type: "localImage", path: imagePath }]
 
 ### SessionManager 必须跟踪的状态
 
-- `threadId`：从 `thread/start` response 获取（兼容 v1 `{threadId}` 与 v2 `{thread: {id}}`）
-- `activeTurnId`：从 `turn/started` 通知获取（兼容 v1 顶层 `turnId` 与 v2 `turn.id`，`turn/interrupt` 需要）
+- `threadId`：从 `thread/start` response 获取（兼容白名单：v1 `{threadId}` 与 v2 `{thread: {id}}`）
+- `activeTurnId`：从 `turn/started` 通知的 `turn.id` 获取（`turn/interrupt` 需要）
 - `pendingRequests`：审批/用户输入请求的 requestId → 记录（用于 `codex_check` 返回 actions 以及响应 server-initiated requests）
 
 ## 安全考量

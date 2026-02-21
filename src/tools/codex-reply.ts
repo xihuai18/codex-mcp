@@ -2,17 +2,24 @@
  * codex_reply tool — continue an existing session.
  */
 import type { SessionManager } from "../session/manager.js";
-import type { SessionStartResult } from "../types.js";
+import type {
+  ApprovalPolicy,
+  EffortLevel,
+  Personality,
+  SandboxMode,
+  SessionStartResult,
+  SummaryMode,
+} from "../types.js";
 
 export interface CodexReplyParams {
   sessionId: string;
   prompt: string;
   model?: string;
-  approvalPolicy?: string;
-  effort?: string;
-  summary?: string;
-  personality?: string;
-  sandbox?: string;
+  approvalPolicy?: ApprovalPolicy;
+  effort?: EffortLevel;
+  summary?: SummaryMode;
+  personality?: Personality;
+  sandbox?: SandboxMode;
   cwd?: string;
   outputSchema?: Record<string, unknown>;
 }

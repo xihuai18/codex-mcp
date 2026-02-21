@@ -418,6 +418,32 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(manager.pollEvents(sessionId).actions).toBeUndefined();
   });
 
+  it("exposes command approval context fields in actions", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(201, Methods.COMMAND_APPROVAL, {
+      itemId: "item_ctx_1",
+      threadId,
+      turnId: "turn_1",
+      command: "npm install",
+      cwd: workspace,
+      reason: "Install deps",
+      commandActions: [{ kind: "exec", command: ["npm", "install"] }],
+      proposedExecpolicyAmendment: ["allow npm install in workspace"],
+    });
+
+    const poll = manager.pollEvents(sessionId);
+    const action = poll.actions?.[0] as
+      | {
+          kind?: string;
+          commandActions?: unknown[] | null;
+          proposedExecpolicyAmendment?: string[] | null;
+        }
+      | undefined;
+    expect(action?.kind).toBe("command");
+    expect(action?.commandActions).toEqual([{ kind: "exec", command: ["npm", "install"] }]);
+    expect(action?.proposedExecpolicyAmendment).toEqual(["allow npm install in workspace"]);
+  });
+
   it("returns INTERNAL and keeps approval pending when forwarding response fails", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(101, Methods.COMMAND_APPROVAL, {
@@ -624,7 +650,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       itemId: "item_ui_1",
       threadId,
       turnId: "turn_1",
-      questions: [{ questionId: "q1", question: "Pick one" }],
+      questions: [{ id: "q1", question: "Pick one" }],
     });
 
     const poll1 = manager.pollEvents(sessionId);
@@ -655,7 +681,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       itemId: "item_forward_fail_ui",
       threadId,
       turnId: "turn_1",
-      questions: [{ questionId: "q1", question: "Pick one" }],
+      questions: [{ id: "q1", question: "Pick one" }],
     });
 
     const poll1 = manager.pollEvents(sessionId);
@@ -706,7 +732,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       itemId: "item_ui_2",
       threadId,
       turnId: "turn_1",
-      questions: [{ questionId: "q1", question: "Pick one" }],
+      questions: [{ id: "q1", question: "Pick one" }],
     });
 
     const poll1 = manager.pollEvents(sessionId, 0, 50);
@@ -744,7 +770,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       itemId: "item_ui_3",
       threadId,
       turnId: "turn_1",
-      questions: [{ questionId: "q1", question: "Pick one" }],
+      questions: [{ id: "q1", question: "Pick one" }],
     });
 
     const poll1 = manager.pollEvents(sessionId, 0, 50);
@@ -777,7 +803,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       itemId: "item_ui_explicit",
       threadId,
       turnId: "turn_1",
-      questions: [{ questionId: "q1", question: "Pick one" }],
+      questions: [{ id: "q1", question: "Pick one" }],
     });
 
     const poll1 = manager.pollEvents(sessionId, 0, 50);
@@ -1048,7 +1074,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect((ack as { isError?: boolean }).isError).not.toBe(true);
   });
 
-  it("keeps user_input questionIds under maxBytes so clients can still answer", async () => {
+  it("keeps user_input ids under maxBytes so clients can still answer", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitServerRequest(105, Methods.USER_INPUT_REQUEST, {
       itemId: "item_compact_user_input",
@@ -1056,7 +1082,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       turnId: "turn_1",
       questions: [
         {
-          questionId: "q1",
+          id: "q1",
           question: "A".repeat(3000),
         },
       ],
@@ -1079,7 +1105,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       actions?: Array<{
         requestId: string;
         kind: string;
-        params: { questions?: Array<{ questionId?: string }> } | undefined;
+        params: { questions?: Array<{ id?: string }> } | undefined;
       }>;
       truncated?: boolean;
       truncatedFields?: string[];
@@ -1090,7 +1116,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(shaped.truncatedFields).toContain("actions");
     expect(shaped.actions?.length).toBe(1);
     expect(shaped.actions?.[0]?.kind).toBe("user_input");
-    expect(shaped.actions?.[0]?.params?.questions?.[0]?.questionId).toBe("q1");
+    expect(shaped.actions?.[0]?.params?.questions?.[0]?.id).toBe("q1");
 
     const ack = executeCodexCheck(
       {
@@ -1285,6 +1311,82 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect((out as { error?: string }).error).toContain("execpolicy_amendment required");
   });
 
+  it("rejects poll payloads that include respond_* fields", async () => {
+    const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
+    const out = executeCodexCheck(
+      {
+        action: "poll",
+        sessionId,
+        requestId: "req_should_not_exist",
+      },
+      manager
+    );
+
+    expect((out as { isError?: boolean }).isError).toBe(true);
+    expect((out as { error?: string }).error).toContain("only valid for respond_* actions");
+  });
+
+  it("rejects respond_permission payloads that include answers", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(32, Methods.COMMAND_APPROVAL, {
+      itemId: "item_approval_invalid_mix",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const out = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId: requestId!,
+        decision: "accept",
+        answers: { q1: { answers: ["A"] } },
+      },
+      manager
+    );
+
+    expect((out as { isError?: boolean }).isError).toBe(true);
+    expect((out as { error?: string }).error).toContain(
+      "answers is only valid for respond_user_input"
+    );
+  });
+
+  it("rejects respond_user_input payloads that include permission fields", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(33, Methods.USER_INPUT_REQUEST, {
+      itemId: "item_user_input_invalid_mix",
+      threadId,
+      turnId: "turn_1",
+      questions: [{ id: "q1", question: "Pick one" }],
+    });
+
+    const poll1 = manager.pollEvents(sessionId, 0, 50);
+    const requestId = poll1.actions?.[0]?.requestId;
+    expect(requestId).toBeDefined();
+
+    const out = executeCodexCheck(
+      {
+        action: "respond_user_input",
+        sessionId,
+        requestId: requestId!,
+        answers: { q1: { answers: ["A"] } },
+        decision: "decline",
+      },
+      manager
+    );
+
+    expect((out as { isError?: boolean }).isError).toBe(true);
+    expect((out as { error?: string }).error).toContain(
+      "decision/execpolicy_amendment/denyMessage are only valid for respond_permission"
+    );
+  });
+
   it("auto-declines approvals after approvalTimeoutMs and clears pending", async () => {
     vi.useFakeTimers();
     try {
@@ -1319,7 +1421,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
         itemId: "item_ui_timeout_1",
         threadId,
         turnId: "turn_1",
-        questions: [{ questionId: "q1", question: "Pick one" }],
+        questions: [{ id: "q1", question: "Pick one" }],
       });
 
       expect(manager.pollEvents(sessionId).actions?.length).toBe(1);
@@ -1635,6 +1737,38 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(poll.actions).toBeUndefined();
   });
 
+  it("returns explicit unsupported error for auth refresh while running", async () => {
+    const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(78, Methods.AUTH_TOKEN_REFRESH, {
+      reason: "unauthorized",
+      previousAccountId: "acct_1",
+    });
+
+    expect(client.respondErrorToServer).toHaveBeenCalledWith(
+      78,
+      -32000,
+      "account/chatgptAuthTokens/refresh unsupported: codex-mcp does not manage external ChatGPT auth tokens"
+    );
+    expect(manager.pollEvents(sessionId).actions).toBeUndefined();
+  });
+
+  it("returns explicit unsupported error for auth refresh after session is terminal", async () => {
+    const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
+    await manager.cancelSession(sessionId, "Cancelled by test");
+    client.respondErrorToServer.mockClear();
+
+    client.emitServerRequest(79, Methods.AUTH_TOKEN_REFRESH, {
+      reason: "unauthorized",
+    });
+
+    expect(client.respondErrorToServer).toHaveBeenCalledWith(
+      79,
+      -32000,
+      "account/chatgptAuthTokens/refresh unsupported: session is terminal"
+    );
+    expect(manager.pollEvents(sessionId).actions).toBeUndefined();
+  });
+
   it("ignores late turn/completed notifications after cancellation", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     await manager.cancelSession(sessionId, "Cancelled by test");
@@ -1695,32 +1829,34 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(client.start).not.toHaveBeenCalled();
   });
 
-  it("supports v1-style turn/started notification with top-level turnId", async () => {
+  it("tracks activeTurnId from v2 turn/started turn.id payload", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
     client.emitNotification(Methods.TURN_STARTED, {
       threadId,
-      turnId: "turn_v1_started",
+      turn: { id: "turn_v2_started", status: "in_progress" },
     });
 
     await manager.interruptSession(sessionId);
     expect(client.turnInterrupt).toHaveBeenCalledWith({
       threadId,
-      turnId: "turn_v1_started",
+      turnId: "turn_v2_started",
     });
   });
 
-  it("supports v1-style turn/completed notification with top-level turnId", async () => {
+  it("uses turn.id from v2 turn/completed payload as final turn id", async () => {
     const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
-    client.emitNotification(Methods.TURN_STARTED, { threadId, turnId: "turn_v1" });
+    client.emitNotification(Methods.TURN_STARTED, {
+      threadId,
+      turn: { id: "turn_v2", status: "in_progress" },
+    });
     client.emitNotification(Methods.TURN_COMPLETED, {
       threadId,
-      turnId: "turn_v1",
-      turn: { status: "completed" },
+      turn: { id: "turn_v2", status: "completed" },
     });
 
     const poll = manager.pollEvents(sessionId, 0, 200);
     expect(poll.status).toBe("idle");
-    expect(poll.result?.turnId).toBe("turn_v1");
+    expect(poll.result?.turnId).toBe("turn_v2");
   });
 
   it("returns SESSION_NOT_RUNNING when interrupting an idle session", async () => {

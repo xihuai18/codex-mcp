@@ -45,24 +45,42 @@ export interface InitializeResult {
   userAgent: string;
 }
 
+// ── Shared enums / aliases ─────────────────────────────────────────
+
+export type ApprovalPolicy = "untrusted" | "on-failure" | "on-request" | "never";
+export type SandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+export type Personality = "none" | "friendly" | "pragmatic";
+export type ReasoningEffort = "none" | "minimal" | "low" | "medium" | "high" | "xhigh";
+export type ReasoningSummary = "auto" | "concise" | "detailed" | "none";
+
 // ── Thread Management ──────────────────────────────────────────────
+
+export interface DynamicToolSpec {
+  name: string;
+  description: string;
+  inputSchema: unknown;
+}
 
 /** thread/start — all fields optional */
 export interface ThreadStartParams {
   cwd?: string | null;
   model?: string | null;
   modelProvider?: string | null;
-  approvalPolicy?: string | null;
+  approvalPolicy?: ApprovalPolicy | null;
   /**
    * v2 schema: sandbox mode string enum ("read-only" | "workspace-write" | "danger-full-access")
    * (Not the SandboxPolicy object used by turn/start's sandboxPolicy.)
    */
-  sandbox?: string | null;
-  personality?: string | null;
+  sandbox?: SandboxMode | null;
+  personality?: Personality | null;
   ephemeral?: boolean | null;
   baseInstructions?: string | null;
   developerInstructions?: string | null;
   config?: Record<string, unknown> | null;
+  dynamicTools?: DynamicToolSpec[] | null;
+  experimentalRawEvents?: boolean;
+  mockExperimentalField?: string | null;
+  persistExtendedHistory?: boolean;
 }
 
 export interface ThreadStartResultV1 {
@@ -75,6 +93,16 @@ export type ThreadStartResult = ThreadStartResultV1 | ThreadStartResultV2;
 
 export interface ThreadForkParams {
   threadId: string;
+  approvalPolicy?: ApprovalPolicy | null;
+  baseInstructions?: string | null;
+  developerInstructions?: string | null;
+  model?: string | null;
+  modelProvider?: string | null;
+  sandbox?: SandboxMode | null;
+  cwd?: string | null;
+  config?: Record<string, unknown> | null;
+  path?: string | null;
+  persistExtendedHistory?: boolean;
 }
 
 export interface ThreadForkResultV1 {
@@ -87,6 +115,18 @@ export type ThreadForkResult = ThreadForkResultV1 | ThreadForkResultV2;
 
 export interface ThreadResumeParams {
   threadId: string;
+  approvalPolicy?: ApprovalPolicy | null;
+  baseInstructions?: string | null;
+  developerInstructions?: string | null;
+  model?: string | null;
+  modelProvider?: string | null;
+  sandbox?: SandboxMode | null;
+  personality?: Personality | null;
+  cwd?: string | null;
+  config?: Record<string, unknown> | null;
+  path?: string | null;
+  history?: unknown[] | null;
+  persistExtendedHistory?: boolean;
 }
 
 export interface ThreadResumeResultV1 {
@@ -103,14 +143,29 @@ export interface ThreadBackgroundTerminalsCleanParams {
 
 // ── SandboxPolicy ──────────────────────────────────────────────────
 
+export type ReadOnlyAccess =
+  | {
+      type: "restricted";
+      includePlatformDefaults?: boolean;
+      readableRoots?: string[];
+    }
+  | { type: "fullAccess" };
+
 export type SandboxPolicy =
-  | { type: "readOnly" }
-  | { type: "workspaceWrite" }
   | { type: "dangerFullAccess" }
-  | { type: "externalSandbox" };
+  | { type: "readOnly"; access?: ReadOnlyAccess }
+  | { type: "externalSandbox"; networkAccess?: "restricted" | "enabled" }
+  | {
+      type: "workspaceWrite";
+      writableRoots?: string[];
+      readOnlyAccess?: ReadOnlyAccess;
+      networkAccess?: boolean;
+      excludeSlashTmp?: boolean;
+      excludeTmpdirEnvVar?: boolean;
+    };
 
 /** Map user-facing sandbox mode string to protocol SandboxPolicy */
-export function toSandboxPolicy(mode: string): SandboxPolicy | undefined {
+export function toSandboxPolicy(mode: SandboxMode | string): SandboxPolicy | undefined {
   switch (mode) {
     case "read-only":
       return { type: "readOnly" };
@@ -125,25 +180,39 @@ export function toSandboxPolicy(mode: string): SandboxPolicy | undefined {
 
 // ── Turn Management ────────────────────────────────────────────────
 
-export interface UserInput {
-  type: "text" | "image" | "localImage" | "skill" | "mention";
-  text?: string;
-  url?: string;
-  path?: string;
-  name?: string;
+export interface TextElement {
+  byteRange: { start: number; end: number };
+  placeholder?: string | null;
+}
+
+export type UserInput =
+  | { type: "text"; text: string; text_elements?: TextElement[] }
+  | { type: "image"; url: string }
+  | { type: "localImage"; path: string }
+  | { type: "skill"; name: string; path: string }
+  | { type: "mention"; name: string; path: string };
+
+export interface CollaborationMode {
+  mode: "plan" | "default";
+  settings: {
+    model: string;
+    developer_instructions?: string | null;
+    reasoning_effort?: ReasoningEffort | null;
+  };
 }
 
 export interface TurnStartParams {
   threadId: string;
   input: UserInput[];
   model?: string | null;
-  approvalPolicy?: string | null;
+  approvalPolicy?: ApprovalPolicy | null;
   sandboxPolicy?: SandboxPolicy | null;
-  personality?: string | null;
-  effort?: string | null;
-  summary?: string | null;
+  personality?: Personality | null;
+  effort?: ReasoningEffort | null;
+  summary?: ReasoningSummary | null;
   cwd?: string | null;
   outputSchema?: Record<string, unknown>;
+  collaborationMode?: CollaborationMode | null;
 }
 
 export interface TurnStartResultV1 {
@@ -159,6 +228,12 @@ export interface TurnInterruptParams {
   turnId: string;
 }
 
+export interface TurnSteerParams {
+  threadId: string;
+  expectedTurnId: string;
+  input: UserInput[];
+}
+
 // ── Approval Requests (server → client) ────────────────────────────
 
 export interface CommandApprovalParams {
@@ -171,14 +246,10 @@ export interface CommandApprovalParams {
   threadId: string;
   turnId: string;
   command?: string | null;
-  cwd?: string;
+  cwd?: string | null;
   reason?: string | null;
   commandActions?: unknown[] | null;
   proposedExecpolicyAmendment?: string[] | null;
-  /** Optional context for network approval prompts. */
-  networkApprovalContext?: unknown;
-  /** Legacy snake_case compatibility from rollout/event payloads. */
-  network_approval_context?: unknown;
 }
 
 export type CommandApprovalDecision =
@@ -216,7 +287,9 @@ export interface UserInputRequestParams {
     id: string;
     header: string;
     question: string;
-    options?: Array<{ label: string; description?: string }> | null;
+    isOther?: boolean;
+    isSecret?: boolean;
+    options?: Array<{ label: string; description: string }> | null;
   }>;
 }
 
@@ -239,6 +312,19 @@ export interface DynamicToolCallResponse {
   contentItems: Array<
     { type: "inputText"; text: string } | { type: "inputImage"; imageUrl: string }
   >;
+}
+
+// ── Auth Refresh Request (server → client) ─────────────────────────
+
+export interface ChatgptAuthTokensRefreshParams {
+  reason: "unauthorized";
+  previousAccountId?: string | null;
+}
+
+export interface ChatgptAuthTokensRefreshResponse {
+  accessToken: string;
+  chatgptAccountId: string;
+  chatgptPlanType?: string | null;
 }
 
 // ── Event Notification Params ──────────────────────────────────────

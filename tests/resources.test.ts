@@ -87,7 +87,9 @@ describe("resources", () => {
     expect(features).toBeDefined();
     expect(features).not.toBeNull();
     expect(features?.respondPermission).toBe(true);
+    expect(features?.respondApprovalAlias).toBe(false);
     expect(features?.responseModeMinimal).toBe(true);
+    expect(features?.compatWarnings).toBe(true);
     expect(toolCounts).toBeDefined();
     expect(toolCounts).not.toBeNull();
     expect(toolCounts?.core).toBe(4);

@@ -109,7 +109,8 @@ export interface PendingRequest {
   turnId: string;
   reason?: string;
   approvalId?: string;
-  networkApprovalContext?: unknown;
+  commandActions?: unknown[] | null;
+  proposedExecpolicyAmendment?: string[] | null;
   createdAt: string;
   resolved: boolean;
   decision?: string;
@@ -202,12 +203,13 @@ export interface CheckResult {
   actions?: Array<{
     type: "approval" | "user_input";
     requestId: string;
-    kind: string;
+    kind: "command" | "fileChange" | "user_input";
     params: unknown;
     itemId: string;
     reason?: string;
     approvalId?: string;
-    networkApprovalContext?: unknown;
+    commandActions?: unknown[] | null;
+    proposedExecpolicyAmendment?: string[] | null;
     createdAt: string;
   }>;
   result?: TurnResult;

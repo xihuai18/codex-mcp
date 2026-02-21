@@ -220,7 +220,7 @@ Query a running session for events, respond to approval requests, or answer user
 | `decision`            | string   | For respond_permission            | For command approvals: `"accept"`, `"acceptForSession"`, `"acceptWithExecpolicyAmendment"`, `"decline"`, `"cancel"`; for file changes: `"accept"`, `"acceptForSession"`, `"decline"`, `"cancel"` |
 | `execpolicy_amendment` | string[] | For acceptWithExecpolicyAmendment | Exec policy amendment list (required when `decision="acceptWithExecpolicyAmendment"`)                                                                                                            |
 | `denyMessage`         | string   | No                                | Internal note on deny (not sent to app-server)                                                                                                                                                   |
-| `answers`             | object   | For respond_user_input            | For `respond_user_input`: `questionId -> { answers: string[] }`                                                                                                                                  |
+| `answers`             | object   | For respond_user_input            | For `respond_user_input`: `question-id -> { answers: string[] }`                                                                                                                                  |
 
 **Returns (poll and respond_*):** `{ sessionId, status, pollInterval?, cursorResetTo?, events, nextCursor, actions?, result? }`
 
@@ -267,9 +267,12 @@ When the agent requests approval or user input, `poll` includes an `actions[]` l
 
 - `respond_permission`: `decision` is one of `accept`, `acceptForSession`, `decline`, `cancel`.
   - For command approvals, `acceptWithExecpolicyAmendment` is supported and requires `execpolicy_amendment`.
-- `respond_user_input`: send `answers` keyed by `questionId`.
+- `respond_user_input`: send `answers` keyed by the question `id`.
+- For command approvals, `actions[]` may include `commandActions` and `proposedExecpolicyAmendment` for richer review UI.
 
 Pending approvals auto-decline after `advanced.approvalTimeoutMs`.
+
+Auth callback note: if app-server sends `account/chatgptAuthTokens/refresh`, codex-mcp returns JSON-RPC error `-32000` because external ChatGPT token refresh is out of scope for this server.
 
 ## Session Lifecycle & Cleanup
 

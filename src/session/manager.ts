@@ -22,9 +22,12 @@ import {
 } from "../app-server/protocol.js";
 import {
   type ApprovalPolicy,
+  type EffortLevel,
+  type Personality,
   type SessionInfo,
   type SessionStatus,
   type SandboxMode,
+  type SummaryMode,
   type PublicSessionInfo,
   type SensitiveSessionInfo,
   type SessionEventType,
@@ -57,6 +60,11 @@ const COALESCED_PROGRESS_DELTA_METHODS = new Set<string>([
 ]);
 // Guard against unbounded in-memory string growth when app-server emits hot delta streams.
 const MAX_COALESCED_DELTA_CHARS = 16_384;
+const AUTH_REFRESH_UNSUPPORTED_CODE = -32000;
+const AUTH_REFRESH_UNSUPPORTED_MESSAGE =
+  "account/chatgptAuthTokens/refresh unsupported: codex-mcp does not manage external ChatGPT auth tokens";
+const AUTH_REFRESH_TERMINAL_MESSAGE =
+  "account/chatgptAuthTokens/refresh unsupported: session is terminal";
 
 // ── Shell noise filtering ────────────────────────────────────────────
 // On Windows, PowerShell profile output (oh-my-posh, PSReadLine, etc.) leaks
@@ -133,16 +141,16 @@ export class SessionManager {
     prompt: string,
     cwd: string,
     spawnOpts: AppServerSpawnOptions,
-    effort: string,
+    effort: EffortLevel,
     advanced?: {
       baseInstructions?: string;
       developerInstructions?: string;
-      personality?: string;
+      personality?: Personality;
       ephemeral?: boolean;
       config?: Record<string, unknown>;
       images?: string[];
       outputSchema?: Record<string, unknown>;
-      summary?: string;
+      summary?: SummaryMode;
       approvalTimeoutMs?: number;
     }
   ): Promise<SessionStartResult> {
@@ -244,11 +252,11 @@ export class SessionManager {
     prompt: string,
     overrides?: {
       model?: string;
-      approvalPolicy?: string;
-      effort?: string;
-      summary?: string;
-      personality?: string;
-      sandbox?: string;
+      approvalPolicy?: ApprovalPolicy;
+      effort?: EffortLevel;
+      summary?: SummaryMode;
+      personality?: Personality;
+      sandbox?: SandboxMode;
       cwd?: string;
       outputSchema?: Record<string, unknown>;
     }
@@ -649,7 +657,8 @@ export class SessionManager {
             itemId: req.itemId,
             reason: req.reason,
             approvalId: req.approvalId,
-            networkApprovalContext: req.networkApprovalContext,
+            commandActions: req.commandActions,
+            proposedExecpolicyAmendment: req.proposedExecpolicyAmendment,
             createdAt: req.createdAt,
           });
         }
@@ -704,6 +713,9 @@ export class SessionManager {
             result.actions = compactActionsForBudget(result.actions);
             while (result.actions.length > 1 && payloadByteSize(result) > normalizedMaxBytes) {
               result.actions.pop();
+            }
+            if (payloadByteSize(result) > normalizedMaxBytes) {
+              result.actions = compactActionsToMinimum(result.actions);
             }
             truncatedFields.push("actions");
           }
@@ -839,7 +851,6 @@ export class SessionManager {
         requestId,
         kind: req.kind,
         approvalId: req.approvalId,
-        networkApprovalContext: req.networkApprovalContext,
         decision,
         denyMessage: extra?.denyMessage,
       },
@@ -888,7 +899,6 @@ export class SessionManager {
         requestId,
         kind: "user_input",
         approvalId: req.approvalId,
-        networkApprovalContext: req.networkApprovalContext,
         answers,
       },
       true
@@ -986,9 +996,7 @@ export class SessionManager {
           {
             const turnObj = p.turn as Record<string, unknown> | undefined;
             const status = normalizeOptionalString(turnObj?.status);
-            session.activeTurnId =
-              (normalizeOptionalString(turnObj?.id) as string | undefined) ??
-              (typeof p.turnId === "string" ? p.turnId : undefined);
+            session.activeTurnId = normalizeOptionalString(turnObj?.id);
             pushEvent(session.eventBuffer, "progress", {
               method,
               ...p,
@@ -1001,11 +1009,7 @@ export class SessionManager {
         case Methods.TURN_COMPLETED: {
           if (session.status === "cancelled") break;
           const turnObj = p.turn as Record<string, unknown> | undefined;
-          const completedTurnId =
-            (typeof p.turnId === "string" ? p.turnId : undefined) ??
-            (turnObj?.id as string | undefined) ??
-            session.activeTurnId ??
-            "";
+          const completedTurnId = (turnObj?.id as string | undefined) ?? session.activeTurnId ?? "";
           session.status = "idle";
           session.activeTurnId = undefined;
           session.lastResult = {
@@ -1129,11 +1133,13 @@ export class SessionManager {
           const requestId = `req_${randomUUID().slice(0, 8)}`;
           const approvalParams = params as CommandApprovalParams & Record<string, unknown>;
           const reason = normalizeOptionalString(approvalParams.reason);
-          const approvalId = normalizeOptionalString(
-            approvalParams.approvalId ?? approvalParams.approval_id
+          const approvalId = normalizeOptionalString(approvalParams.approvalId);
+          const commandActions = Array.isArray(approvalParams.commandActions)
+            ? approvalParams.commandActions
+            : null;
+          const proposedExecpolicyAmendment = normalizeStringArrayOrNull(
+            approvalParams.proposedExecpolicyAmendment
           );
-          const networkApprovalContext =
-            approvalParams.networkApprovalContext ?? approvalParams.network_approval_context;
           const pending: PendingRequest = {
             requestId,
             kind: "command",
@@ -1143,7 +1149,8 @@ export class SessionManager {
             turnId: normalizeOptionalString(approvalParams.turnId) ?? "",
             reason,
             approvalId,
-            networkApprovalContext,
+            commandActions,
+            proposedExecpolicyAmendment,
             createdAt: new Date().toISOString(),
             resolved: false,
             respond: (result) => client.respondToServer(id, result),
@@ -1193,7 +1200,8 @@ export class SessionManager {
               command: approvalParams.command,
               cwd: approvalParams.cwd,
               reason,
-              networkApprovalContext,
+              commandActions,
+              proposedExecpolicyAmendment,
             },
             true
           );
@@ -1326,7 +1334,11 @@ export class SessionManager {
           break;
 
         case Methods.AUTH_TOKEN_REFRESH:
-          client.respondErrorToServer(id, -32601, "Auth token refresh not supported by codex-mcp");
+          client.respondErrorToServer(
+            id,
+            AUTH_REFRESH_UNSUPPORTED_CODE,
+            AUTH_REFRESH_UNSUPPORTED_MESSAGE
+          );
           break;
 
         case Methods.LEGACY_PATCH_APPROVAL:
@@ -1505,7 +1517,7 @@ function respondToTerminalSessionRequest(
       } as DynamicToolCallResponse);
       break;
     case Methods.AUTH_TOKEN_REFRESH:
-      client.respondErrorToServer(id, -32601, "Session is terminal");
+      client.respondErrorToServer(id, AUTH_REFRESH_UNSUPPORTED_CODE, AUTH_REFRESH_TERMINAL_MESSAGE);
       break;
     case Methods.LEGACY_PATCH_APPROVAL:
     case Methods.LEGACY_EXEC_APPROVAL:
@@ -1519,6 +1531,12 @@ function respondToTerminalSessionRequest(
 
 function normalizeOptionalString(value: unknown): string | undefined {
   return typeof value === "string" ? value : undefined;
+}
+
+function normalizeStringArrayOrNull(value: unknown): string[] | null {
+  if (!Array.isArray(value)) return null;
+  const normalized = value.filter((entry): entry is string => typeof entry === "string");
+  return normalized;
 }
 
 function sendPendingRequestResponseOrThrow(
@@ -1551,6 +1569,8 @@ function compactActionsForBudget(
     params: compactActionParamsForBudget(action),
     itemId: action.itemId,
     createdAt: action.createdAt,
+    commandActions: action.commandActions,
+    proposedExecpolicyAmendment: action.proposedExecpolicyAmendment,
   }));
 }
 
@@ -1566,14 +1586,35 @@ function compactActionParamsForBudget(
     return undefined;
   }
 
-  const compactQuestions: Array<{ questionId: string }> = [];
+  const compactQuestions: Array<{ id: string }> = [];
   for (const entry of rawQuestions) {
-    if (isRecord(entry) && typeof entry.questionId === "string") {
-      compactQuestions.push({ questionId: entry.questionId });
+    if (!isRecord(entry)) continue;
+    const id = typeof entry.id === "string" ? entry.id : undefined;
+    if (id) {
+      compactQuestions.push({ id });
     }
   }
 
   return compactQuestions.length > 0 ? { questions: compactQuestions } : undefined;
+}
+
+function compactActionsToMinimum(
+  actions: NonNullable<CheckResult["actions"]>
+): NonNullable<CheckResult["actions"]> {
+  if (actions.length === 0) return actions;
+  const first = actions[0]!;
+  return [
+    {
+      type: first.type,
+      requestId: first.requestId,
+      kind: first.kind,
+      params: undefined,
+      itemId: first.itemId,
+      createdAt: first.createdAt,
+      commandActions: first.commandActions,
+      proposedExecpolicyAmendment: first.proposedExecpolicyAmendment,
+    },
+  ];
 }
 
 function clampCursorToLatest(cursor: number, latestCursor: number): number {

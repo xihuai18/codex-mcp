@@ -3,10 +3,12 @@
  */
 import type { SessionManager } from "../session/manager.js";
 import {
+  ALL_DECISIONS,
   ErrorCode,
   POLL_DEFAULT_MAX_EVENTS,
   POLL_MIN_MAX_EVENTS,
   RESPOND_DEFAULT_MAX_EVENTS,
+  type ApprovalDecision,
   type CheckAction,
   type CheckResult,
   type PollOptions,
@@ -21,7 +23,7 @@ export interface CodexCheckParams {
   maxEvents?: number;
   // respond_permission params
   requestId?: string;
-  decision?: string;
+  decision?: ApprovalDecision;
   execpolicy_amendment?: string[];
   denyMessage?: string;
   // respond_user_input params
@@ -39,12 +41,24 @@ export function executeCodexCheck(
 
   switch (args.action) {
     case "poll": {
+      if (
+        args.requestId !== undefined ||
+        args.decision !== undefined ||
+        args.execpolicy_amendment !== undefined ||
+        args.denyMessage !== undefined ||
+        args.answers !== undefined
+      ) {
+        return {
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: requestId/decision/execpolicy_amendment/denyMessage/answers are only valid for respond_* actions`,
+          isError: true,
+        };
+      }
       // Default to a single incremental event for lightweight polling.
       // Polling with maxEvents=0 can cause no-op loops in some clients, so
       // enforce a minimum of 1 for poll.
       const maxEvents =
         typeof args.maxEvents === "number"
-          ? Math.max(POLL_MIN_MAX_EVENTS, args.maxEvents)
+          ? Math.max(POLL_MIN_MAX_EVENTS, Math.floor(args.maxEvents))
           : POLL_DEFAULT_MAX_EVENTS;
       return sessionManager.pollEvents(args.sessionId, args.cursor, maxEvents, {
         responseMode,
@@ -56,6 +70,31 @@ export function executeCodexCheck(
       if (!args.requestId || !args.decision) {
         return {
           error: `Error [${ErrorCode.INVALID_ARGUMENT}]: requestId and decision required for respond_permission`,
+          isError: true,
+        };
+      }
+      if (args.answers !== undefined) {
+        return {
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: answers is only valid for respond_user_input`,
+          isError: true,
+        };
+      }
+      if (args.decision === "acceptWithExecpolicyAmendment") {
+        if (!args.execpolicy_amendment || args.execpolicy_amendment.length === 0) {
+          return {
+            error: `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicy_amendment required for acceptWithExecpolicyAmendment`,
+            isError: true,
+          };
+        }
+      } else if (args.execpolicy_amendment !== undefined) {
+        return {
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicy_amendment is only valid with decision='acceptWithExecpolicyAmendment'`,
+          isError: true,
+        };
+      }
+      if (!ALL_DECISIONS.includes(args.decision)) {
+        return {
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: Unknown decision '${args.decision}'`,
           isError: true,
         };
       }
@@ -73,7 +112,10 @@ export function executeCodexCheck(
       //   send stale/default cursor values.
       // - default to compact ACK (maxEvents=0) to avoid returning large event
       //   payloads on approval/user-input responses.
-      const maxEvents = args.maxEvents ?? RESPOND_DEFAULT_MAX_EVENTS;
+      const maxEvents =
+        typeof args.maxEvents === "number"
+          ? Math.max(0, Math.floor(args.maxEvents))
+          : RESPOND_DEFAULT_MAX_EVENTS;
       return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, maxEvents, {
         responseMode,
         pollOptions,
@@ -84,6 +126,16 @@ export function executeCodexCheck(
       if (!args.requestId || !args.answers) {
         return {
           error: `Error [${ErrorCode.INVALID_ARGUMENT}]: requestId and answers required for respond_user_input`,
+          isError: true,
+        };
+      }
+      if (
+        args.decision !== undefined ||
+        args.execpolicy_amendment !== undefined ||
+        args.denyMessage !== undefined
+      ) {
+        return {
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: decision/execpolicy_amendment/denyMessage are only valid for respond_permission`,
           isError: true,
         };
       }
@@ -98,7 +150,10 @@ export function executeCodexCheck(
       //   send stale/default cursor values.
       // - default to compact ACK (maxEvents=0) to avoid returning large event
       //   payloads on approval/user-input responses.
-      const maxEvents = args.maxEvents ?? RESPOND_DEFAULT_MAX_EVENTS;
+      const maxEvents =
+        typeof args.maxEvents === "number"
+          ? Math.max(0, Math.floor(args.maxEvents))
+          : RESPOND_DEFAULT_MAX_EVENTS;
       return sessionManager.pollEventsMonotonic(args.sessionId, args.cursor, maxEvents, {
         responseMode,
         pollOptions,
