@@ -149,8 +149,8 @@ git diff -- codex-schema/metadata.json
 - 执行日期：`2026-02-27`（本地环境）
 - `codex` 版本：`codex-cli 0.106.0`
 - 执行命令：`codex app-server generate-json-schema --experimental --out codex-schema`
-- 结果：`codex-schema` 存在文件差异（协议/schema 漂移），`codex-schema/metadata.json` 有变更
-- 结论：以 `codex-schema/` 为真值进入完整升级流程（第 4 节），同步代码/测试/文档闭环
+- 结果：`codex-schema` 无文件差异，`codex-schema/metadata.json` 无变更
+- 结论：当前 vendored schema 基线与本地 CLI 生成结果一致
 
 > 后续每次执行“单次更新”时，应覆盖本节记录，保持最新一次运行状态可追溯。
 
