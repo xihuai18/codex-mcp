@@ -1059,6 +1059,9 @@ describe("SessionManager protocol compatibility + approvals", () => {
       command: `echo ${"x".repeat(4000)}`,
       cwd: workspace,
       availableDecisions: ["accept", "decline", "cancel"],
+      additionalPermissions: { network: true },
+      networkApprovalContext: { host: "example.com", protocol: "https" },
+      proposedNetworkPolicyAmendments: [{ action: "allow", host: "example.com" }],
     });
 
     const shaped = executeCodexCheck(
@@ -1089,6 +1092,21 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(
       Array.isArray((shaped.actions?.[0] as { availableDecisions?: unknown[] }).availableDecisions)
     ).toBe(true);
+    expect(
+      (shaped.actions?.[0] as { additionalPermissions?: unknown }).additionalPermissions
+    ).toEqual({
+      network: true,
+    });
+    expect(
+      (shaped.actions?.[0] as { networkApprovalContext?: unknown }).networkApprovalContext
+    ).toEqual({
+      host: "example.com",
+      protocol: "https",
+    });
+    expect(
+      (shaped.actions?.[0] as { proposedNetworkPolicyAmendments?: unknown })
+        .proposedNetworkPolicyAmendments
+    ).toEqual([{ action: "allow", host: "example.com" }]);
 
     const ack = executeCodexCheck(
       {
@@ -1964,7 +1982,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       void handler;
       void timeout;
       return timeoutHandle;
-    }) as typeof setTimeout);
+    }) as unknown as typeof setTimeout);
 
     try {
       const { threadId } = await manager.createSession("hi", workspace, {}, "medium", {

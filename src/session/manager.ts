@@ -1653,6 +1653,7 @@ function compactActionsForBudget(
     commandActions: action.commandActions,
     proposedExecpolicyAmendment: action.proposedExecpolicyAmendment,
     availableDecisions: action.availableDecisions,
+    additionalPermissions: action.additionalPermissions,
     networkApprovalContext: action.networkApprovalContext,
     proposedNetworkPolicyAmendments: action.proposedNetworkPolicyAmendments,
   }));
@@ -1698,7 +1699,9 @@ function compactActionsToMinimum(
       commandActions: first.commandActions,
       proposedExecpolicyAmendment: first.proposedExecpolicyAmendment,
       availableDecisions: first.availableDecisions,
+      additionalPermissions: first.additionalPermissions,
       networkApprovalContext: first.networkApprovalContext,
+      proposedNetworkPolicyAmendments: first.proposedNetworkPolicyAmendments,
     },
   ];
 }
