@@ -258,16 +258,15 @@ export interface CommandApprovalParams {
   proposedNetworkPolicyAmendments?: unknown;
 }
 
-export interface NetworkPolicyAmendment {
-  action: "allow" | "deny";
-  host: string;
-}
-
 export type CommandApprovalDecision =
   | "accept"
   | "acceptForSession"
   | { acceptWithExecpolicyAmendment: { execpolicy_amendment: string[] } }
-  | { applyNetworkPolicyAmendment: { network_policy_amendment: NetworkPolicyAmendment } }
+  | {
+      applyNetworkPolicyAmendment: {
+        network_policy_amendment: { action: "allow" | "deny"; host: string };
+      };
+    }
   | "decline"
   | "cancel";
 

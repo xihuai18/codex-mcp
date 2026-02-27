@@ -8,6 +8,7 @@ import {
   POLL_DEFAULT_MAX_EVENTS,
   POLL_MIN_MAX_EVENTS,
   RESPOND_DEFAULT_MAX_EVENTS,
+  type NetworkPolicyAmendment,
   type ApprovalDecision,
   type CheckAction,
   type CheckResult,
@@ -25,7 +26,7 @@ export interface CodexCheckParams {
   requestId?: string;
   decision?: ApprovalDecision;
   execpolicy_amendment?: string[];
-  network_policy_amendment?: { action: "allow" | "deny"; host: string };
+  network_policy_amendment?: NetworkPolicyAmendment;
   denyMessage?: string;
   // respond_user_input params
   answers?: Record<string, { answers: string[] }>;
