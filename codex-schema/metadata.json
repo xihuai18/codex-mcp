@@ -1,8 +1,8 @@
 {
-  "generatedAt": "2026-02-21",
+  "generatedAt": "2026-02-27",
   "generator": {
     "name": "codex-cli",
-    "version": "0.104.0"
+    "version": "0.106.0"
   },
   "command": "codex app-server generate-json-schema --experimental --out codex-schema",
   "notes": [
