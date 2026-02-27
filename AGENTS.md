@@ -16,12 +16,12 @@ This repository is a TypeScript (ESM) MCP server that wraps the OpenAI Codex `ap
 
 ### Minimum Tools Snapshot
 
-| Tool | Responsibility | Blocking |
-| --- | --- | --- |
-| `codex` | start new session | wait init only |
-| `codex_reply` | continue session | return immediately |
-| `codex_session` | list/get/cancel/interrupt/fork/clean background terminals | sync |
-| `codex_check` | poll events + respond to approvals/user input | sync |
+| Tool            | Responsibility                                            | Blocking           |
+| --------------- | --------------------------------------------------------- | ------------------ |
+| `codex`         | start new session                                         | wait init only     |
+| `codex_reply`   | continue session                                          | return immediately |
+| `codex_session` | list/get/cancel/interrupt/fork/clean background terminals | sync               |
+| `codex_check`   | poll events + respond to approvals/user input             | sync               |
 
 ## Upgrade Execution Entry
 
@@ -39,6 +39,44 @@ For a single end-to-end update pass, run:
 4. `git diff -- codex-schema/metadata.json`
 
 If step 3 shows changes, continue with the full checklist in `docs/DESIGN.md` and sync docs/tests in the same PR.
+
+### Codex CLI And Schema Maintenance Rules
+
+- Codex CLI upgrades are protocol upgrades: `codex-mcp` spawns `codex app-server` and speaks its JSON-RPC wire format.
+- Any time `codex --version` changes (including pre-releases), re-run the One-Shot Update Commands to detect protocol/schema drift.
+- If `codex-schema/` has diffs, treat it as the source of truth and follow the full upgrade playbook in `docs/DESIGN.md`.
+- If there are no diffs, record the run (date + codex version + result) in `docs/DESIGN.md` so the repo stays auditable.
+
+### Maintenance Runbook (Step-by-step)
+
+This section is a practical execution checklist.
+`docs/DESIGN.md` remains the source of truth for protocol semantics and compatibility policy.
+
+1. Environment baseline
+   - `node -v` and `npm -v`
+   - `codex --version`
+2. Update Codex CLI (target version)
+   - Pick an explicit version for reproducibility (recommended), or use `@latest` only when intentionally upgrading.
+   - Example (pinned): `npm install -g @openai/codex@0.106.0`
+   - Example (moving): `npm install -g @openai/codex@latest`
+   - Verify: `codex --version`
+3. App-server schema baseline (Codex protocol)
+   - Regenerate vendored schema: `codex app-server generate-json-schema --experimental --out codex-schema`
+   - Inspect drift:
+     - `git diff --name-only -- codex-schema`
+     - `git diff -- codex-schema/metadata.json`
+   - Decision gate:
+     - If there are diffs: treat `codex-schema/` as the truth and follow the full upgrade playbook in `docs/DESIGN.md`.
+     - If there are no diffs: update the "最近一次执行记录" in `docs/DESIGN.md` (date + codex version + result).
+4. NPM dependency update check
+   - Direct deps/devDeps: `npm outdated`
+   - Full tree (incl. transitive): `npm outdated --all`
+   - If applying updates, prefer staying within current semver ranges unless a major bump is explicitly planned.
+5. Verification (required before merging interface/protocol changes)
+   - `npm run typecheck && npm test && npm run build`
+6. Closure
+   - Ensure docs/tests are updated when protocol/schema changes.
+   - Do not commit generated build output (`dist/`) or secrets.
 
 ### Upgrade Gate (Execution View)
 
