@@ -37,6 +37,7 @@ import {
   type CheckResult,
   type ResponseMode,
   type PollOptions,
+  type NetworkPolicyAmendment,
   ErrorCode,
   COMMAND_DECISIONS,
   FILE_CHANGE_DECISIONS,
@@ -659,6 +660,10 @@ export class SessionManager {
             approvalId: req.approvalId,
             commandActions: req.commandActions,
             proposedExecpolicyAmendment: req.proposedExecpolicyAmendment,
+            availableDecisions: req.availableDecisions,
+            proposedNetworkPolicyAmendments: req.proposedNetworkPolicyAmendments,
+            additionalPermissions: req.additionalPermissions,
+            networkApprovalContext: req.networkApprovalContext,
             createdAt: req.createdAt,
           });
         }
@@ -785,7 +790,11 @@ export class SessionManager {
     sessionId: string,
     requestId: string,
     decision: string,
-    extra?: { execpolicy_amendment?: string[]; denyMessage?: string }
+    extra?: {
+      execpolicy_amendment?: string[];
+      network_policy_amendment?: NetworkPolicyAmendment;
+      denyMessage?: string;
+    }
   ): void {
     const session = this.getSessionOrThrow(sessionId);
     const req = session.pendingRequests.get(requestId);
@@ -798,6 +807,19 @@ export class SessionManager {
 
     // Validate decision by kind (avoid sending invalid protocol payloads)
     if (req.kind === "command") {
+      const available = parseAvailableDecisionSet(req.availableDecisions);
+      if (available && !available.has(decision)) {
+        throw new Error(
+          `Error [${ErrorCode.INVALID_ARGUMENT}]: Decision '${decision}' is not available for this approval prompt`
+        );
+      }
+
+      // Backward-compat: object-form decisions must be explicitly advertised by newer CLIs.
+      if (!available && decision === "applyNetworkPolicyAmendment") {
+        throw new Error(
+          `Error [${ErrorCode.INVALID_ARGUMENT}]: Decision '${decision}' is not supported by this Codex CLI version (missing availableDecisions)`
+        );
+      }
       if (!COMMAND_DECISIONS.includes(decision as (typeof COMMAND_DECISIONS)[number])) {
         throw new Error(
           `Error [${ErrorCode.INVALID_ARGUMENT}]: Invalid command decision '${decision}'`
@@ -809,6 +831,38 @@ export class SessionManager {
       ) {
         throw new Error(
           `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicy_amendment required for acceptWithExecpolicyAmendment`
+        );
+      }
+
+      if (
+        decision !== "acceptWithExecpolicyAmendment" &&
+        extra?.execpolicy_amendment !== undefined
+      ) {
+        throw new Error(
+          `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicy_amendment is only valid for acceptWithExecpolicyAmendment`
+        );
+      }
+
+      if (decision === "applyNetworkPolicyAmendment") {
+        const amendment = extra?.network_policy_amendment;
+        if (!amendment) {
+          throw new Error(
+            `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment required for applyNetworkPolicyAmendment`
+          );
+        }
+        if (amendment.action !== "allow" && amendment.action !== "deny") {
+          throw new Error(
+            `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment.action must be 'allow' or 'deny'`
+          );
+        }
+        if (!amendment.host) {
+          throw new Error(
+            `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment.host required for applyNetworkPolicyAmendment`
+          );
+        }
+      } else if (extra?.network_policy_amendment !== undefined) {
+        throw new Error(
+          `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment is only valid for applyNetworkPolicyAmendment`
         );
       }
     } else if (req.kind === "fileChange") {
@@ -826,7 +880,10 @@ export class SessionManager {
     // Build protocol response
     let response: unknown;
     if (req.kind === "command") {
-      response = buildCommandApprovalResponse(decision, extra?.execpolicy_amendment);
+      response = buildCommandApprovalResponse(decision, {
+        execpolicy_amendment: extra?.execpolicy_amendment,
+        network_policy_amendment: extra?.network_policy_amendment,
+      });
     } else if (req.kind === "fileChange") {
       response = { decision } as FileChangeApprovalResponse;
     }
@@ -1140,6 +1197,22 @@ export class SessionManager {
           const proposedExecpolicyAmendment = normalizeStringArrayOrNull(
             approvalParams.proposedExecpolicyAmendment
           );
+          const availableDecisions = Array.isArray(approvalParams.availableDecisions)
+            ? (approvalParams.availableDecisions as unknown[])
+            : null;
+          const proposedNetworkPolicyAmendments = Array.isArray(
+            approvalParams.proposedNetworkPolicyAmendments
+          )
+            ? (approvalParams.proposedNetworkPolicyAmendments as unknown[])
+            : null;
+          const additionalPermissions =
+            "additionalPermissions" in approvalParams
+              ? (approvalParams.additionalPermissions as unknown)
+              : undefined;
+          const networkApprovalContext =
+            "networkApprovalContext" in approvalParams
+              ? (approvalParams.networkApprovalContext as unknown)
+              : undefined;
           const pending: PendingRequest = {
             requestId,
             kind: "command",
@@ -1151,6 +1224,10 @@ export class SessionManager {
             approvalId,
             commandActions,
             proposedExecpolicyAmendment,
+            availableDecisions,
+            proposedNetworkPolicyAmendments,
+            additionalPermissions,
+            networkApprovalContext,
             createdAt: new Date().toISOString(),
             resolved: false,
             respond: (result) => client.respondToServer(id, result),
@@ -1202,6 +1279,10 @@ export class SessionManager {
               reason,
               commandActions,
               proposedExecpolicyAmendment,
+              availableDecisions,
+              proposedNetworkPolicyAmendments,
+              additionalPermissions,
+              networkApprovalContext,
             },
             true
           );
@@ -1571,6 +1652,9 @@ function compactActionsForBudget(
     createdAt: action.createdAt,
     commandActions: action.commandActions,
     proposedExecpolicyAmendment: action.proposedExecpolicyAmendment,
+    availableDecisions: action.availableDecisions,
+    networkApprovalContext: action.networkApprovalContext,
+    proposedNetworkPolicyAmendments: action.proposedNetworkPolicyAmendments,
   }));
 }
 
@@ -1613,6 +1697,8 @@ function compactActionsToMinimum(
       createdAt: first.createdAt,
       commandActions: first.commandActions,
       proposedExecpolicyAmendment: first.proposedExecpolicyAmendment,
+      availableDecisions: first.availableDecisions,
+      networkApprovalContext: first.networkApprovalContext,
     },
   ];
 }
@@ -1907,9 +1993,13 @@ function toSensitiveInfo(session: SessionInfo): SensitiveSessionInfo {
 
 function buildCommandApprovalResponse(
   decision: string,
-  execpolicy_amendment?: string[]
+  extra?: {
+    execpolicy_amendment?: string[];
+    network_policy_amendment?: NetworkPolicyAmendment;
+  }
 ): CommandApprovalResponse {
   if (decision === "acceptWithExecpolicyAmendment") {
+    const execpolicy_amendment = extra?.execpolicy_amendment;
     if (!execpolicy_amendment || execpolicy_amendment.length === 0) {
       throw new Error(
         `Error [${ErrorCode.INVALID_ARGUMENT}]: execpolicy_amendment required for acceptWithExecpolicyAmendment`
@@ -1923,11 +2013,43 @@ function buildCommandApprovalResponse(
       },
     };
   }
+
+  if (decision === "applyNetworkPolicyAmendment") {
+    const amendment = extra?.network_policy_amendment;
+    if (!amendment) {
+      throw new Error(
+        `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment required for applyNetworkPolicyAmendment`
+      );
+    }
+    return {
+      decision: {
+        applyNetworkPolicyAmendment: {
+          network_policy_amendment: amendment,
+        },
+      },
+    };
+  }
   return { decision: decision as "accept" | "acceptForSession" | "decline" | "cancel" };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function parseAvailableDecisionSet(available: unknown[] | null | undefined): Set<string> | null {
+  if (!Array.isArray(available) || available.length === 0) return null;
+  const set = new Set<string>();
+  for (const entry of available) {
+    if (typeof entry === "string") {
+      set.add(entry);
+      continue;
+    }
+    if (isRecord(entry)) {
+      if ("acceptWithExecpolicyAmendment" in entry) set.add("acceptWithExecpolicyAmendment");
+      if ("applyNetworkPolicyAmendment" in entry) set.add("applyNetworkPolicyAmendment");
+    }
+  }
+  return set.size > 0 ? set : null;
 }
 
 /**

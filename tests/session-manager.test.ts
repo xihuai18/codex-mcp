@@ -429,6 +429,20 @@ describe("SessionManager protocol compatibility + approvals", () => {
       reason: "Install deps",
       commandActions: [{ kind: "exec", command: ["npm", "install"] }],
       proposedExecpolicyAmendment: ["allow npm install in workspace"],
+      availableDecisions: [
+        "accept",
+        "acceptForSession",
+        {
+          applyNetworkPolicyAmendment: {
+            network_policy_amendment: { action: "allow", host: "example.com" },
+          },
+        },
+        "decline",
+        "cancel",
+      ],
+      additionalPermissions: { network: true },
+      networkApprovalContext: { host: "example.com", protocol: "https" },
+      proposedNetworkPolicyAmendments: [{ action: "allow", host: "example.com" }],
     });
 
     const poll = manager.pollEvents(sessionId);
@@ -437,11 +451,21 @@ describe("SessionManager protocol compatibility + approvals", () => {
           kind?: string;
           commandActions?: unknown[] | null;
           proposedExecpolicyAmendment?: string[] | null;
+          availableDecisions?: unknown[] | null;
+          additionalPermissions?: unknown;
+          networkApprovalContext?: unknown;
+          proposedNetworkPolicyAmendments?: unknown[] | null;
         }
       | undefined;
     expect(action?.kind).toBe("command");
     expect(action?.commandActions).toEqual([{ kind: "exec", command: ["npm", "install"] }]);
     expect(action?.proposedExecpolicyAmendment).toEqual(["allow npm install in workspace"]);
+    expect(Array.isArray(action?.availableDecisions)).toBe(true);
+    expect(action?.additionalPermissions).toEqual({ network: true });
+    expect(action?.networkApprovalContext).toEqual({ host: "example.com", protocol: "https" });
+    expect(action?.proposedNetworkPolicyAmendments).toEqual([
+      { action: "allow", host: "example.com" },
+    ]);
   });
 
   it("returns INTERNAL and keeps approval pending when forwarding response fails", async () => {
@@ -1034,6 +1058,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
       turnId: "turn_1",
       command: `echo ${"x".repeat(4000)}`,
       cwd: workspace,
+      availableDecisions: ["accept", "decline", "cancel"],
     });
 
     const shaped = executeCodexCheck(
@@ -1061,6 +1086,9 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect(shaped.actions?.length).toBe(1);
     expect(shaped.actions?.[0]?.requestId).toBeDefined();
     expect(shaped.actions?.[0]?.params).toBeUndefined();
+    expect(
+      Array.isArray((shaped.actions?.[0] as { availableDecisions?: unknown[] }).availableDecisions)
+    ).toBe(true);
 
     const ack = executeCodexCheck(
       {
@@ -1311,6 +1339,141 @@ describe("SessionManager protocol compatibility + approvals", () => {
     expect((out as { error?: string }).error).toContain("execpolicy_amendment required");
   });
 
+  it("requires network_policy_amendment for applyNetworkPolicyAmendment", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(88, Methods.COMMAND_APPROVAL, {
+      itemId: "item_cmd_network_1",
+      threadId,
+      turnId: "turn_1",
+      command: "curl https://example.com",
+      cwd: workspace,
+      availableDecisions: [
+        "accept",
+        {
+          applyNetworkPolicyAmendment: {
+            network_policy_amendment: { action: "allow", host: "example.com" },
+          },
+        },
+        "decline",
+        "cancel",
+      ],
+    });
+
+    const poll1 = manager.pollEvents(sessionId);
+    const requestId = poll1.actions![0].requestId;
+    const out = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId,
+        decision: "applyNetworkPolicyAmendment",
+        // missing network_policy_amendment
+      },
+      manager
+    );
+
+    expect((out as { isError?: boolean }).isError).toBe(true);
+    expect((out as { error?: string }).error).toContain("network_policy_amendment required");
+  });
+
+  it("rejects network_policy_amendment when decision is not applyNetworkPolicyAmendment", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(89, Methods.COMMAND_APPROVAL, {
+      itemId: "item_cmd_network_2",
+      threadId,
+      turnId: "turn_1",
+      command: "echo hi",
+      cwd: workspace,
+    });
+
+    const poll1 = manager.pollEvents(sessionId);
+    const requestId = poll1.actions![0].requestId;
+    const out = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId,
+        decision: "accept",
+        network_policy_amendment: { action: "allow", host: "example.com" },
+      },
+      manager
+    );
+
+    expect((out as { isError?: boolean }).isError).toBe(true);
+    expect((out as { error?: string }).error).toContain("network_policy_amendment is only valid");
+  });
+
+  it("rejects applyNetworkPolicyAmendment when prompt lacks availableDecisions", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(90, Methods.COMMAND_APPROVAL, {
+      itemId: "item_cmd_network_3",
+      threadId,
+      turnId: "turn_1",
+      command: "curl https://example.com",
+      cwd: workspace,
+      // availableDecisions intentionally omitted for backward-compat check
+    });
+
+    const poll1 = manager.pollEvents(sessionId);
+    const requestId = poll1.actions![0].requestId;
+    const out = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId,
+        decision: "applyNetworkPolicyAmendment",
+        network_policy_amendment: { action: "allow", host: "example.com" },
+      },
+      manager
+    );
+
+    expect((out as { isError?: boolean }).isError).toBe(true);
+    expect((out as { error?: string }).error).toContain("missing availableDecisions");
+  });
+
+  it("accepts applyNetworkPolicyAmendment when advertised", async () => {
+    const { sessionId, threadId } = await manager.createSession("hi", workspace, {}, "medium");
+    client.emitServerRequest(91, Methods.COMMAND_APPROVAL, {
+      itemId: "item_cmd_network_4",
+      threadId,
+      turnId: "turn_1",
+      command: "curl https://example.com",
+      cwd: workspace,
+      availableDecisions: [
+        "accept",
+        {
+          applyNetworkPolicyAmendment: {
+            network_policy_amendment: { action: "allow", host: "example.com" },
+          },
+        },
+        "decline",
+        "cancel",
+      ],
+    });
+
+    const poll1 = manager.pollEvents(sessionId);
+    const requestId = poll1.actions![0].requestId;
+
+    const ok = executeCodexCheck(
+      {
+        action: "respond_permission",
+        sessionId,
+        requestId,
+        decision: "applyNetworkPolicyAmendment",
+        network_policy_amendment: { action: "allow", host: "example.com" },
+      },
+      manager
+    );
+    expect((ok as { isError?: boolean }).isError).not.toBe(true);
+    expect(client.respondToServer).toHaveBeenCalledWith(91, {
+      decision: {
+        applyNetworkPolicyAmendment: {
+          network_policy_amendment: { action: "allow", host: "example.com" },
+        },
+      },
+    });
+  });
+
   it("rejects poll payloads that include respond_* fields", async () => {
     const { sessionId } = await manager.createSession("hi", workspace, {}, "medium");
     const out = executeCodexCheck(
@@ -1383,7 +1546,7 @@ describe("SessionManager protocol compatibility + approvals", () => {
 
     expect((out as { isError?: boolean }).isError).toBe(true);
     expect((out as { error?: string }).error).toContain(
-      "decision/execpolicy_amendment/denyMessage are only valid for respond_permission"
+      "decision/execpolicy_amendment/network_policy_amendment/denyMessage are only valid for respond_permission"
     );
   });
 

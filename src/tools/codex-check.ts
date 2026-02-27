@@ -25,6 +25,7 @@ export interface CodexCheckParams {
   requestId?: string;
   decision?: ApprovalDecision;
   execpolicy_amendment?: string[];
+  network_policy_amendment?: { action: "allow" | "deny"; host: string };
   denyMessage?: string;
   // respond_user_input params
   answers?: Record<string, { answers: string[] }>;
@@ -45,11 +46,12 @@ export function executeCodexCheck(
         args.requestId !== undefined ||
         args.decision !== undefined ||
         args.execpolicy_amendment !== undefined ||
+        args.network_policy_amendment !== undefined ||
         args.denyMessage !== undefined ||
         args.answers !== undefined
       ) {
         return {
-          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: requestId/decision/execpolicy_amendment/denyMessage/answers are only valid for respond_* actions`,
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: requestId/decision/execpolicy_amendment/network_policy_amendment/denyMessage/answers are only valid for respond_* actions`,
           isError: true,
         };
       }
@@ -92,6 +94,35 @@ export function executeCodexCheck(
           isError: true,
         };
       }
+
+      if (args.decision === "applyNetworkPolicyAmendment") {
+        if (!args.network_policy_amendment) {
+          return {
+            error: `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment required for applyNetworkPolicyAmendment`,
+            isError: true,
+          };
+        }
+        if (
+          args.network_policy_amendment.action !== "allow" &&
+          args.network_policy_amendment.action !== "deny"
+        ) {
+          return {
+            error: `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment.action must be 'allow' or 'deny'`,
+            isError: true,
+          };
+        }
+        if (!args.network_policy_amendment.host) {
+          return {
+            error: `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment.host required for applyNetworkPolicyAmendment`,
+            isError: true,
+          };
+        }
+      } else if (args.network_policy_amendment !== undefined) {
+        return {
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: network_policy_amendment is only valid with decision='applyNetworkPolicyAmendment'`,
+          isError: true,
+        };
+      }
       if (!ALL_DECISIONS.includes(args.decision)) {
         return {
           error: `Error [${ErrorCode.INVALID_ARGUMENT}]: Unknown decision '${args.decision}'`,
@@ -101,6 +132,7 @@ export function executeCodexCheck(
       try {
         sessionManager.resolveApproval(args.sessionId, args.requestId, args.decision, {
           execpolicy_amendment: args.execpolicy_amendment,
+          network_policy_amendment: args.network_policy_amendment,
           denyMessage: args.denyMessage,
         });
       } catch (err: unknown) {
@@ -132,10 +164,11 @@ export function executeCodexCheck(
       if (
         args.decision !== undefined ||
         args.execpolicy_amendment !== undefined ||
+        args.network_policy_amendment !== undefined ||
         args.denyMessage !== undefined
       ) {
         return {
-          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: decision/execpolicy_amendment/denyMessage are only valid for respond_permission`,
+          error: `Error [${ErrorCode.INVALID_ARGUMENT}]: decision/execpolicy_amendment/network_policy_amendment/denyMessage are only valid for respond_permission`,
           isError: true,
         };
       }

@@ -250,12 +250,24 @@ export interface CommandApprovalParams {
   reason?: string | null;
   commandActions?: unknown[] | null;
   proposedExecpolicyAmendment?: string[] | null;
+
+  // Added in codex-cli 0.106.x: richer approval contexts.
+  additionalPermissions?: unknown;
+  availableDecisions?: unknown;
+  networkApprovalContext?: unknown;
+  proposedNetworkPolicyAmendments?: unknown;
+}
+
+export interface NetworkPolicyAmendment {
+  action: "allow" | "deny";
+  host: string;
 }
 
 export type CommandApprovalDecision =
   | "accept"
   | "acceptForSession"
   | { acceptWithExecpolicyAmendment: { execpolicy_amendment: string[] } }
+  | { applyNetworkPolicyAmendment: { network_policy_amendment: NetworkPolicyAmendment } }
   | "decline"
   | "cancel";
 

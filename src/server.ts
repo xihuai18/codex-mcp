@@ -145,12 +145,19 @@ export function createServer(serverCwd: string): McpServer {
         .enum(ALL_DECISIONS)
         .optional()
         .describe(
-          "Approval decision for respond_permission. acceptWithExecpolicyAmendment requires execpolicy_amendment."
+          "Approval decision for respond_permission. acceptWithExecpolicyAmendment requires execpolicy_amendment; applyNetworkPolicyAmendment requires network_policy_amendment."
         ),
       execpolicy_amendment: z
         .array(z.string())
         .optional()
         .describe("For acceptWithExecpolicyAmendment only"),
+      network_policy_amendment: z
+        .object({
+          action: z.enum(["allow", "deny"]),
+          host: z.string().min(1),
+        })
+        .optional()
+        .describe("For applyNetworkPolicyAmendment only"),
       denyMessage: z.string().optional().describe("Deny reason (not sent to agent)"),
       // respond_user_input
       answers: z
@@ -192,6 +199,12 @@ export function createServer(serverCwd: string): McpServer {
               "execpolicy_amendment is only allowed for action='respond_permission'."
             );
           }
+          if (value.network_policy_amendment !== undefined) {
+            addIssue(
+              "network_policy_amendment",
+              "network_policy_amendment is only allowed for action='respond_permission'."
+            );
+          }
           if (value.denyMessage !== undefined) {
             addIssue("denyMessage", "denyMessage is only allowed for action='respond_permission'.");
           }
@@ -211,6 +224,7 @@ export function createServer(serverCwd: string): McpServer {
             addIssue("answers", "answers is only allowed for action='respond_user_input'.");
           }
           const needsExecpolicy = value.decision === "acceptWithExecpolicyAmendment";
+          const needsNetworkPolicy = value.decision === "applyNetworkPolicyAmendment";
           if (
             needsExecpolicy &&
             (!value.execpolicy_amendment || value.execpolicy_amendment.length === 0)
@@ -224,6 +238,19 @@ export function createServer(serverCwd: string): McpServer {
             addIssue(
               "execpolicy_amendment",
               "execpolicy_amendment is only allowed when decision='acceptWithExecpolicyAmendment'."
+            );
+          }
+
+          if (needsNetworkPolicy && !value.network_policy_amendment) {
+            addIssue(
+              "network_policy_amendment",
+              "network_policy_amendment is required when decision='applyNetworkPolicyAmendment'."
+            );
+          }
+          if (!needsNetworkPolicy && value.network_policy_amendment !== undefined) {
+            addIssue(
+              "network_policy_amendment",
+              "network_policy_amendment is only allowed when decision='applyNetworkPolicyAmendment'."
             );
           }
           break;
@@ -242,6 +269,12 @@ export function createServer(serverCwd: string): McpServer {
             addIssue(
               "execpolicy_amendment",
               "execpolicy_amendment is only allowed for action='respond_permission'."
+            );
+          }
+          if (value.network_policy_amendment !== undefined) {
+            addIssue(
+              "network_policy_amendment",
+              "network_policy_amendment is only allowed for action='respond_permission'."
             );
           }
           if (value.denyMessage !== undefined) {

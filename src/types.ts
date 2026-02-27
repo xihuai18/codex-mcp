@@ -52,6 +52,7 @@ export const COMMAND_DECISIONS = [
   "accept",
   "acceptForSession",
   "acceptWithExecpolicyAmendment",
+  "applyNetworkPolicyAmendment",
   "decline",
   "cancel",
 ] as const;
@@ -64,10 +65,16 @@ export const ALL_DECISIONS = [
   "accept",
   "acceptForSession",
   "acceptWithExecpolicyAmendment",
+  "applyNetworkPolicyAmendment",
   "decline",
   "cancel",
 ] as const;
 export type ApprovalDecision = (typeof ALL_DECISIONS)[number];
+
+export interface NetworkPolicyAmendment {
+  action: "allow" | "deny";
+  host: string;
+}
 
 // ── Session Types ──────────────────────────────────────────────────
 
@@ -111,6 +118,10 @@ export interface PendingRequest {
   approvalId?: string;
   commandActions?: unknown[] | null;
   proposedExecpolicyAmendment?: string[] | null;
+  availableDecisions?: unknown[] | null;
+  additionalPermissions?: unknown;
+  networkApprovalContext?: unknown;
+  proposedNetworkPolicyAmendments?: unknown[] | null;
   createdAt: string;
   resolved: boolean;
   decision?: string;
@@ -210,6 +221,10 @@ export interface CheckResult {
     approvalId?: string;
     commandActions?: unknown[] | null;
     proposedExecpolicyAmendment?: string[] | null;
+    availableDecisions?: unknown[] | null;
+    additionalPermissions?: unknown;
+    networkApprovalContext?: unknown;
+    proposedNetworkPolicyAmendments?: unknown[] | null;
     createdAt: string;
   }>;
   result?: TurnResult;
