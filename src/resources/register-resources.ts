@@ -101,6 +101,8 @@ const ERROR_CODE_HINTS: Record<ErrorCode, string> = {
     "Non-JSON or malformed app-server line. Check shell/profile noise and transport health.",
   [ErrorCode.WRITE_QUEUE_DROPPED]:
     "stdin backpressure overflow. Reduce burst size and re-run in smaller turns.",
+  [ErrorCode.EXEC_NOT_SUPPORTED]:
+    "Operation not supported in exec mode. Features like threadFork and threadResume require app-server mode.",
   [ErrorCode.INTERNAL]: "Unexpected server-side failure. Inspect logs and retry safely.",
 };
 
@@ -214,6 +216,7 @@ function buildGotchasText(): string {
     "- Default response mode is `minimal`; use `full` if you need full raw event payloads.",
     "- respond_* uses monotonic cursor handling: `max(cursor, sessionLastCursor)`.",
     "- If `cursorResetTo` is present, your cursor is stale (old events were evicted); restart from that value.",
+    "- **Poll frequency guidance**: Adapt poll interval to task complexity and previous poll results. For `running` sessions, start at 2 minutes and increase for long tasks. Only poll frequently (~1s) when `waiting_approval`. Do NOT high-frequency poll — it wastes tokens and provides no benefit.",
     "",
     "## Approval behavior",
     "",
@@ -247,6 +250,13 @@ function buildGotchasText(): string {
     "",
     "- codex-mcp does not hard-code a strict concurrent-session cap.",
     "- Practical limit depends on machine resources and child-process load.",
+    "",
+    "## Exec fallback mode",
+    "",
+    "- When the codex binary does not support `app-server`, codex-mcp falls back to `exec` mode (`codex exec --json`).",
+    "- Check `codex-mcp:///server-info` `clientMode` field to detect which mode is active.",
+    "- **Exec mode supports multi-turn**: first turn uses `codex exec`, subsequent turns use `codex exec resume <threadId>` for context continuity.",
+    "- **Exec mode limitations**: no approval/user-input interactions, `threadFork`/`threadResume` throw `EXEC_NOT_SUPPORTED`. `sandbox`/`profile`/`cwd`/`outputSchema` overrides only apply on the first turn (exec resume does not support `-s`/`-p`/`-C`/`--output-schema`).",
     "",
   ].join("\n");
 }
@@ -412,7 +422,7 @@ function buildCompatReport(
 
 export function registerResources(
   server: Pick<McpServer, "registerResource">,
-  deps: { version: string; sessionManager: RuntimeMetadataProvider }
+  deps: { version: string; sessionManager: RuntimeMetadataProvider; clientMode?: string }
 ): void {
   let codexCliVersionCache: string | null | undefined;
   const getCodexCliVersion = (): string | null => {
@@ -442,6 +452,7 @@ export function registerResources(
             name: "codex-mcp",
             version: deps.version,
             codexCliVersion: getCodexCliVersion(),
+            clientMode: deps.clientMode ?? "app-server",
             node: process.version,
             platform: process.platform,
             arch: process.arch,

@@ -30,6 +30,7 @@ import {
 import { buildAppServerArgs, type AppServerSpawnOptions } from "./lifecycle.js";
 import { resolveCodexInvocation } from "./codex-bin.js";
 import { ErrorCode } from "../types.js";
+import type { ICodexClient } from "./client-interface.js";
 
 declare const __PKG_VERSION__: string;
 const CLIENT_VERSION = typeof __PKG_VERSION__ !== "undefined" ? __PKG_VERSION__ : "0.0.0-dev";
@@ -47,7 +48,7 @@ interface PendingRpcRequest {
 type NotificationHandler = (method: string, params: unknown) => void;
 type ServerRequestHandler = (id: RequestId, method: string, params: unknown) => void;
 
-export class AppServerClient extends EventEmitter {
+export class AppServerClient extends EventEmitter implements ICodexClient {
   private process: ChildProcess | null = null;
   private nextId = 1;
   private pending = new Map<RequestId, PendingRpcRequest>();
@@ -66,6 +67,10 @@ export class AppServerClient extends EventEmitter {
 
   get destroyed(): boolean {
     return this._destroyed;
+  }
+
+  get supportsTurnOverrides(): boolean {
+    return true;
   }
 
   /**

@@ -21,6 +21,14 @@ type ResolverDeps = {
   readFile?: (p: string) => string;
 };
 
+/**
+ * Resolve the codex binary name from the CODEX_MCP_BINARY env var.
+ * Defaults to "codex" when unset.
+ */
+export function resolveCodexBinaryName(env: NodeJS.ProcessEnv = process.env): string {
+  return env.CODEX_MCP_BINARY || "codex";
+}
+
 export function resolveCodexInvocation(
   codexArgs: string[],
   deps: ResolverDeps = {}
@@ -31,12 +39,13 @@ export function resolveCodexInvocation(
   const readFile = deps.readFile ?? ((p: string) => readFileSync(p, "utf8"));
   const pathApi = platform === "win32" ? path.win32 : path.posix;
   const delimiter = platform === "win32" ? ";" : ":";
+  const binaryName = resolveCodexBinaryName(env);
 
   if (platform !== "win32") {
-    return { cmd: "codex", args: codexArgs, spawnedViaCmd: false };
+    return { cmd: binaryName, args: codexArgs, spawnedViaCmd: false };
   }
 
-  const shim = findOnPath("codex", env, exists, pathApi, delimiter, [".exe", ".cmd", ".bat"]);
+  const shim = findOnPath(binaryName, env, exists, pathApi, delimiter, [".exe", ".cmd", ".bat"]);
   if (shim && shim.toLowerCase().endsWith(".exe")) {
     return { cmd: shim, args: codexArgs, spawnedViaCmd: false };
   }
@@ -51,7 +60,7 @@ export function resolveCodexInvocation(
   // Last resort: spawn via cmd.exe. Keep arguments as separate tokens to avoid nested-quote issues
   // when Node builds the final CreateProcess command line.
   const comspec = env.ComSpec || env.COMSPEC || "cmd.exe";
-  return { cmd: comspec, args: ["/d", "/s", "/c", "codex", ...codexArgs], spawnedViaCmd: true };
+  return { cmd: comspec, args: ["/d", "/s", "/c", binaryName, ...codexArgs], spawnedViaCmd: true };
 }
 
 function findOnPath(

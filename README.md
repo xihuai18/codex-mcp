@@ -4,7 +4,7 @@
 [![license](https://img.shields.io/npm/l/@leo000001/codex-mcp.svg)](https://github.com/xihuai18/codex-mcp/blob/master/LICENSE)
 [![node](https://img.shields.io/node/v/@leo000001/codex-mcp.svg)](https://nodejs.org)
 
-MCP server that wraps [OpenAI Codex](https://github.com/openai/codex) `app-server` — start coding agents, poll their progress, and manage permissions from any MCP client.
+MCP server that wraps [OpenAI Codex](https://github.com/openai/codex) — start coding agents, poll their progress, and manage permissions from any MCP client. Supports both `app-server` (full capability) and `exec` (fallback for codex variants without app-server) modes.
 
 ## Features
 
@@ -83,6 +83,24 @@ Or add to `~/.claude/settings.json`:
 - `CODEX_MCP_STDIO_MODE=auto` (default): run with warnings when risk is elevated
 - `CODEX_MCP_STDIO_MODE=strict`: fail fast on blocking risks (e.g. TTY stdio), keep heuristic risks as warnings
 - `CODEX_MCP_STDIO_MODE=off`: disable the preflight guard
+
+## Exec Fallback Mode
+
+When the codex binary does not support `app-server` (e.g. internal variants like `codex-internal`), codex-mcp automatically falls back to `codex exec --json` mode.
+
+| Env Var | Default | Description |
+| --- | --- | --- |
+| `CODEX_MCP_BINARY` | `codex` | Name of the codex binary to use |
+| `CODEX_MCP_MODE` | auto-detect | Force `app-server` or `exec` mode (skip detection) |
+
+**Exec mode supports multi-turn context** via `codex exec resume`. First turn uses `codex exec`, subsequent turns use `codex exec resume <threadId>`.
+
+**Exec mode limitations:**
+- No approval/user-input interactions
+- `threadFork`/`threadResume` throw `EXEC_NOT_SUPPORTED`
+- `sandbox`/`profile`/`cwd`/`outputSchema` overrides only apply on the first turn (exec resume does not support these flags)
+
+Check `codex-mcp:///server-info` `clientMode` field to detect which mode is active.
 
 Examples:
 
@@ -329,11 +347,12 @@ Three layers of protection:
 > **Same-platform assumption**: codex-mcp assumes the MCP client and server run on the same machine. All communication uses stdio (local IPC), child processes share the local filesystem and `~/.codex/config.toml`, and `cwd` paths refer to the local filesystem.
 
 ```
-MCP Client ←stdio→ codex-mcp server ←stdio→ codex app-server ←→ Codex Agent
+MCP Client ←stdio→ codex-mcp server ←stdio→ codex app-server ←→ Codex Agent   (app-server mode)
+MCP Client ←stdio→ codex-mcp server ←stdio→ codex exec --json ←→ Codex Agent  (exec fallback)
          (same machine, stdio transport)
 ```
 
-Each session spawns an independent `codex app-server` child process. The MCP server translates between MCP tool calls and the app-server's JSON-RPC protocol.
+Each session spawns an independent child process. In app-server mode, it uses the JSON-RPC protocol over stdio. In exec fallback mode, it uses `codex exec --json` JSONL output with `codex exec resume` for multi-turn context.
 
 ## Development
 

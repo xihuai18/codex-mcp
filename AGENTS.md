@@ -1,6 +1,6 @@
 # Repo Agent Instructions (codex-mcp)
 
-This repository is a TypeScript (ESM) MCP server that wraps the OpenAI Codex `app-server` JSON-RPC protocol. It spawns `codex app-server` child processes and exposes their capabilities as MCP tools.
+This repository is a TypeScript (ESM) MCP server that wraps the OpenAI Codex CLI. It spawns `codex app-server` child processes (or falls back to `codex exec --json` for variants without app-server) and exposes their capabilities as MCP tools.
 
 ## Document Boundary (AGENTS vs DESIGN)
 
@@ -109,6 +109,10 @@ src/
 ├── types.ts
 ├── app-server/
 │   ├── client.ts
+│   ├── client-interface.ts
+│   ├── exec-client.ts
+│   ├── detect.ts
+│   ├── codex-bin.ts
 │   ├── protocol.ts
 │   └── lifecycle.ts
 ├── session/
@@ -124,10 +128,11 @@ src/
 
 ## Architecture Snapshot (Execution Context)
 
-- Single MCP stdio server, per-session `codex app-server` subprocess.
+- Single MCP stdio server, per-session child process (`app-server` or `exec --json` fallback).
 - `codex` / `codex_reply` are non-blocking: they return early and rely on `codex_check(action="poll")`.
 - Event buffering uses cursor pagination with pinning for critical events.
 - Approval flow is asynchronous: app-server request -> buffered action -> client response via `codex_check`.
+- Exec fallback: auto-detected at startup; uses `codex exec --json` + `exec resume` for multi-turn. See `CODEX_MCP_BINARY` / `CODEX_MCP_MODE` env vars.
 - Full protocol behavior, event mapping, and lifecycle diagrams live in `docs/DESIGN.md`.
 
 ## Code Style & Conventions

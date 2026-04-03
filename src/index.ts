@@ -2,11 +2,16 @@
  * codex-mcp — MCP server entry point
  *
  * Starts the MCP server with stdio transport.
- * Spawns codex app-server child processes for each session.
+ * Spawns codex app-server child processes for each session,
+ * or falls back to codex exec --json when app-server is unavailable.
  */
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { createServer } from "./server.js";
 import { runStdioPreflight } from "./utils/stdio-guard.js";
+import { resolveCodexBinaryName } from "./app-server/codex-bin.js";
+import { detectClientMode } from "./app-server/detect.js";
+import { AppServerClient } from "./app-server/client.js";
+import { ExecClient } from "./app-server/exec-client.js";
 
 async function main(): Promise<void> {
   const preflight = runStdioPreflight();
@@ -28,8 +33,15 @@ async function main(): Promise<void> {
     );
   }
 
+  const binaryName = resolveCodexBinaryName();
+  const clientMode = await detectClientMode(binaryName);
+  console.error(`[codex-mcp] client mode: ${clientMode} (binary: ${binaryName})`);
+
   const serverCwd = process.cwd();
-  const server = createServer(serverCwd);
+  const server = createServer(serverCwd, {
+    createClient: () => (clientMode === "exec" ? new ExecClient() : new AppServerClient()),
+    clientMode,
+  });
   const transport = new StdioServerTransport();
 
   let closing = false;

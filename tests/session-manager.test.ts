@@ -17,6 +17,8 @@ class MockAppServerClient extends EventEmitter {
   threadForkResult: unknown = { thread: { id: "thread_forked" } };
   threadResumeResult: unknown = { thread: { id: "thread_forked" } };
 
+  supportsTurnOverrides = true;
+
   start = vi.fn(async () => ({ userAgent: "mock" }));
   threadStart = vi.fn(async () => this.threadStartResult);
   threadFork = vi.fn(async () => this.threadForkResult);

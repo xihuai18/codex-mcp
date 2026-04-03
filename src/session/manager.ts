@@ -3,6 +3,7 @@
  */
 import { randomUUID } from "crypto";
 import { AppServerClient } from "../app-server/client.js";
+import type { ICodexClient } from "../app-server/client-interface.js";
 import type { AppServerSpawnOptions } from "../app-server/lifecycle.js";
 import { resolveAndValidateCwd } from "../utils/cwd.js";
 import { redactPaths } from "../utils/redact.js";
@@ -109,8 +110,8 @@ function stripShellNoise(delta: string): string {
 }
 
 export interface SessionManagerOptions {
-  /** Inject AppServerClient factory (for tests). */
-  createClient?: () => AppServerClient;
+  /** Inject client factory (for tests or to select exec mode). */
+  createClient?: () => ICodexClient;
   /** Disable background cleanup timer (useful for tests). */
   disableCleanup?: boolean;
 }
@@ -122,10 +123,10 @@ export interface PollQueryOptions {
 
 export class SessionManager {
   private sessions = new Map<string, SessionInfo>();
-  private clients = new Map<string, AppServerClient>();
+  private clients = new Map<string, ICodexClient>();
   private cancellationInFlight = new Map<string, Promise<void>>();
   private cleanupTimer: ReturnType<typeof setInterval> | null = null;
-  private createClient: () => AppServerClient;
+  private createClient: () => ICodexClient;
 
   constructor(options: SessionManagerOptions = {}) {
     this.createClient = options.createClient ?? (() => new AppServerClient());
@@ -314,12 +315,17 @@ export class SessionManager {
       const turnStartResult = await client.turnStart(turnParams);
       const startedTurnId = extractTurnId(turnStartResult);
       if (startedTurnId) session.activeTurnId = startedTurnId;
-      if (resolvedCwd) session.cwd = resolvedCwd;
+
+      // Only persist cwd/sandbox overrides if the client actually supports them
+      // on this turn. ExecClient in resume mode does not support -s/-p/-C, so
+      // persisting those values would cause session metadata to drift from reality.
+      const canOverride = client.supportsTurnOverrides;
+      if (resolvedCwd && canOverride) session.cwd = resolvedCwd;
       if (overrides?.model) session.model = overrides.model;
       if (overrides?.approvalPolicy) {
         session.approvalPolicy = overrides.approvalPolicy as ApprovalPolicy;
       }
-      if (overrides?.sandbox) {
+      if (overrides?.sandbox && canOverride) {
         session.sandbox = overrides.sandbox as SandboxMode;
       }
     } catch (err) {
@@ -1003,7 +1009,7 @@ export class SessionManager {
     return session;
   }
 
-  private getClientOrThrow(sessionId: string): AppServerClient {
+  private getClientOrThrow(sessionId: string): ICodexClient {
     const client = this.clients.get(sessionId);
     if (!client) {
       throw new Error(
@@ -1015,7 +1021,7 @@ export class SessionManager {
 
   private registerHandlers(
     sessionId: string,
-    client: AppServerClient,
+    client: ICodexClient,
     approvalTimeoutMs = DEFAULT_APPROVAL_TIMEOUT_MS
   ): void {
     const session = this.sessions.get(sessionId)!;
@@ -1028,10 +1034,18 @@ export class SessionManager {
       switch (method) {
         case Methods.THREAD_STARTED: {
           const thread = isRecord(p.thread) ? p.thread : undefined;
+          // Update session.threadId if the notification provides a real thread ID
+          // (e.g. ExecClient returns a synthetic ID from threadStart(), then the
+          // real ID arrives via the thread.started JSONL event).
+          const notifiedThreadId =
+            normalizeOptionalString(p.threadId) ?? normalizeOptionalString(thread?.id);
+          if (notifiedThreadId && notifiedThreadId !== session.threadId) {
+            session.threadId = notifiedThreadId;
+          }
           pushEvent(session.eventBuffer, "progress", {
             method,
             ...p,
-            threadId: normalizeOptionalString(p.threadId) ?? normalizeOptionalString(thread?.id),
+            threadId: notifiedThreadId,
             status: normalizeOptionalString(thread?.status),
           });
           break;
@@ -1579,7 +1593,7 @@ function createUnrefTimeout(handler: () => void, timeoutMs: number): ReturnType<
 }
 
 function respondToTerminalSessionRequest(
-  client: AppServerClient,
+  client: ICodexClient,
   id: RequestId,
   method: string
 ): void {

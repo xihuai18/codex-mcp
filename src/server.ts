@@ -3,7 +3,7 @@
  */
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { z } from "zod";
-import { SessionManager } from "./session/manager.js";
+import { SessionManager, type SessionManagerOptions } from "./session/manager.js";
 import { executeCodex } from "./tools/codex.js";
 import { executeCodexReply } from "./tools/codex-reply.js";
 import { executeCodexSession } from "./tools/codex-session.js";
@@ -52,8 +52,11 @@ function toStructuredContent(value: unknown): Record<string, unknown> {
   return { value };
 }
 
-export function createServer(serverCwd: string): McpServer {
-  const sessionManager = new SessionManager();
+export function createServer(
+  serverCwd: string,
+  options?: SessionManagerOptions & { clientMode?: string }
+): McpServer {
+  const sessionManager = new SessionManager(options);
 
   const server = new McpServer({
     name: "codex-mcp",
@@ -61,7 +64,11 @@ export function createServer(serverCwd: string): McpServer {
   });
 
   // Read-only MCP resources (helpful docs / metadata)
-  registerResources(server, { version: SERVER_VERSION, sessionManager });
+  registerResources(server, {
+    version: SERVER_VERSION,
+    sessionManager,
+    clientMode: options?.clientMode,
+  });
 
   const publicSessionInfoSchema = z.object({
     sessionId: z.string(),
@@ -514,9 +521,10 @@ export function createServer(serverCwd: string): McpServer {
 
 POLLING FREQUENCY: Do NOT poll every turn. Codex tasks take minutes, not seconds.
 - Treat pollInterval as a minimum hint, not a fixed schedule.
-- "running": never poll faster than 120000ms (2 minutes); use longer intervals for longer tasks.
+- "running": sleep at least 2 minutes between polls; increase for complex tasks. Do NOT high-frequency poll — it wastes tokens and provides no benefit.
 - "waiting_approval": poll about every 1000ms and respond quickly to actions[].
 - When status is "idle"/"error"/"cancelled": stop polling, the session is done.
+- Adapt interval based on task complexity and whether the previous poll returned new events.
 
 poll: events since cursor. Default maxEvents=${POLL_DEFAULT_MAX_EVENTS}.
 
